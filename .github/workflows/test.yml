@@ -1,0 +1,34 @@
+name: Backend checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: bangjach_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: bangjach_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bangjach_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://bangjach_test:test_password@localhost:5432/bangjach_test
+      TEST_DATABASE_URL: postgresql+asyncpg://bangjach_test:test_password@localhost:5432/bangjach_test
+      ENVIRONMENT: test
+      JWT_SECRET: ci-test-only-secret-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: ruff check . && ruff format --check .
+      - run: alembic upgrade head && alembic check
+      - run: pytest -q
+      - run: pip check

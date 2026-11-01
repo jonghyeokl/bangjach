@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Bangjach local settings and data
+.env.*
+!.env.example
+*.db
+*.db-*
+.DS_Store
