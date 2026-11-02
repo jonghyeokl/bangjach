@@ -12,17 +12,17 @@ from app.jobs.import_bbabang import import_catalog, normalize_import_photo, read
 from app.services import photos
 
 
-def test_read_export_requires_200_unique_ranked_themes(tmp_path):
+def test_read_export_requires_100_unique_ranked_themes(tmp_path):
     data = {
         "schema_version": 1,
         "source": "https://bbabang.net/#home",
-        "count": 200,
+        "count": 100,
         "request": {
             "sort": ["recommendTotalRating:desc"],
             "filter": ["isopen != false", "store_isopen != false"],
             "query": "",
         },
-        "themes": [{"source_id": i, "rank": i} for i in range(1, 201)],
+        "themes": [{"source_id": i, "rank": i} for i in range(1, 101)],
     }
     file = tmp_path / "themes.json"
 
@@ -32,16 +32,16 @@ def test_read_export_requires_200_unique_ranked_themes(tmp_path):
 
     assert read() == data
     last = data["themes"].pop()
-    data["count"] = 199
-    with pytest.raises(ValueError, match="200개"):
+    data["count"] = 99
+    with pytest.raises(ValueError, match="100개"):
         read()
-    data["count"] = 200
+    data["count"] = 100
     data["themes"].append(last)
     last["source_id"] = 1
     with pytest.raises(ValueError, match="중복"):
         read()
-    last["source_id"] = 200
-    last["rank"] = 199
+    last["source_id"] = 100
+    last["rank"] = 99
     with pytest.raises(ValueError, match="순위"):
         read()
 

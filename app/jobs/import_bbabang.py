@@ -54,7 +54,7 @@ REGIONS = {
 }
 REGION_BY_NAME = {name: region for region, names in REGIONS.items() for name in names}
 SOURCE = "https://bbabang.net/#home"
-IMPORT_COUNT = 200
+IMPORT_COUNT = 100
 
 
 def stable_id(kind, value):
