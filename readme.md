@@ -119,3 +119,22 @@ PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회
 테마 사진 등록: 관리자 전용 `POST /theme/v1/with-photo`에 multipart 형식으로 `data`(기존 테마 등록 JSON 문자열)와 `photo`(파일 1장)를 보낸다. 사진 없는 등록은 기존 `POST /theme/v1`을 사용한다. 사진은 기존 비공개 버킷의 `themes/` 경로에 저장하며, 응답 `image_url`은 API 기준 상대 경로다. JPEG/PNG/WebP·8MB·2,500만 화소 제한, EXIF 제거·1600px 축소를 적용한다. 저장 실패 시 테마는 생성하지 않는다. DB 마이그레이션·추가 환경변수는 필요 없다.
 
 일행 검색: `/user/v1/search?purpose=party&q=...`는 수락된 친구이면서 일행 검색을 허용한 사용자만 반환한다. `/theme/v1`의 `party_user_id`에도 같은 제한을 적용한다. 친구 추가용 검색(`purpose=friend`)은 유지한다.
+
+## 빠방 테스트 데이터 일괄 등록
+
+앱 저장소의 수집기로 카페 지역·주소·전화번호가 포함된 JSON과 사진을 준비한 뒤 실행한다. DB 연결은 `.env`의 `DATABASE_URL`을 사용한다.
+
+```sh
+# 검증/미리보기만 (DB·버킷에 쓰지 않음)
+.venv/bin/python -m app.jobs.import_bbabang /수집폴더/themes.json
+
+# 실제 등록 (Cloud SQL Proxy 연결 및 저장소 접근 권한 필요)
+.venv/bin/python -m app.jobs.import_bbabang /수집폴더/themes.json --apply --photo-bucket bangjach-api-192693215385-review-photos
+```
+
+- 앱의 `npm run collect:bbabang -- --input <JSON> --import-db --apply --photo-bucket <버킷>`으로 다운로드·CSV·DB 등록을 한 번에 실행할 수 있다.
+- 원본 ID 기반 UUID로 중복을 방지하고 기존 카페/테마는 이름도 대조한다. 기존 내용을 덮어쓰지 않는다. 카페명 중복·주소 불일치·필수 정보 누락은 보고하고 중단한다.
+- 임포터 실행을 PostgreSQL advisory lock으로 직렬화한다. DB 쓰기는 한 트랜잭션으로 처리하며 실패하면 이번에 저장한 사진도 정리한다. 기존 데이터 삭제나 새 마이그레이션은 없다.
+- 가져온 포스터는 최대 6,400만 화소·12MB를 허용하고 1600px JPEG로 축소한다. 일반 업로드 API의 제한은 그대로다.
+- 원본 추천 점수·리뷰 수는 저장하지 않는다. 방자취 통계는 실제 사용자 리뷰로 계산한다.
+- 개발 전용 로컬 DB와 사진 폴더를 쓸 때만 `--local-photos`를 지정한다. Cloud SQL의 사진은 서비스가 사용하는 버킷에 저장해야 한다.
