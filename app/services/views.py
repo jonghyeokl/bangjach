@@ -1,4 +1,5 @@
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.domain.models import Cafe, Review, Theme, ThemeStatistics, User
 
@@ -74,11 +75,19 @@ def review(row, user, target, place):
     )
     for field in ("rating", "difficulty", "horrorness", "physicality"):
         data[field] = float(data[field]) if data[field] is not None else None
-    return {**data, "author": public_user(user), "theme_name": target.name, "cafe_name": place.name}
+    return {
+        **data,
+        "author": public_user(user),
+        "theme_name": target.name,
+        "theme_image_url": target.image_url,
+        "photos": [{"id": p.id, "url": f"/media/v1/review-photos/{p.id}"} for p in row.photos],
+        "cafe_name": place.name,
+    }
 
 
 REVIEW_QUERY = (
     select(Review, User, Theme, Cafe)
+    .options(selectinload(Review.photos))
     .join(User, Review.user_id == User.id)
     .join(Theme, Review.theme_id == Theme.id)
     .join(Cafe, Theme.cafe_id == Cafe.id)

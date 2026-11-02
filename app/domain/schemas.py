@@ -101,6 +101,15 @@ class SettingsPatch(Patch):
 
 
 class ReviewFields(Input):
+    photo_ids: list[UUID] = Field(default_factory=list, max_length=5)
+
+    @field_validator("photo_ids")
+    @classmethod
+    def unique_photos(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("같은 사진은 한 번만 첨부할 수 있습니다.")
+        return value
+
     is_success: bool | None = Field(default=None, strict=True)
     people_size: Positive | None = None
     hint_count: Nonnegative | None = None
@@ -133,7 +142,7 @@ class ReviewPatch(ReviewFields, Patch):
     date: PlayDate | None = None
 
     def required_values(self):
-        return ["rating", "date", "genre_list"]
+        return ["rating", "date", "genre_list", "photo_ids"]
 
 
 class CafeCreate(Input):

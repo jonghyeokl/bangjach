@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from starlette.exceptions import HTTPException
 
-from app.api import catalog, friends, health, reviews, users
+from app.api import catalog, friends, health, media, reviews, users
 from app.core.config import settings
 from app.core.database import engine
 
@@ -23,7 +23,7 @@ app.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"]
 )
 app.include_router(health.router, prefix="/api/v1")
-for router in (users.router, catalog.router, reviews.router, friends.router):
+for router in (users.router, catalog.router, reviews.router, friends.router, media.router):
     app.include_router(router)
 
 

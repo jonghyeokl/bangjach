@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_timeout_seconds: float = Field(default=10, gt=0, le=60)
     rate_limit_enabled: bool = True
+    review_photo_bucket: str = ""
+    review_photo_local_dir: str = ".uploads/review-photos"
 
     @model_validator(mode="after")
     def production(self):

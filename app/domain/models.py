@@ -17,7 +17,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
@@ -31,9 +31,13 @@ def int_array():
 
 
 class Row:
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    created_dt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
-    updated_dt: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4, sort_order=-100)
+    created_dt: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now, sort_order=100
+    )
+    updated_dt: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now, onupdate=now, sort_order=101
+    )
 
 
 class User(Row, Base):
@@ -83,6 +87,9 @@ class Review(Row, Base):
     difficulty: Mapped[Decimal | None] = mapped_column(Numeric(2, 1))
     horrorness: Mapped[Decimal | None] = mapped_column(Numeric(2, 1))
     physicality: Mapped[Decimal | None] = mapped_column(Numeric(2, 1))
+    photos: Mapped[list["ReviewPhoto"]] = relationship(
+        order_by="ReviewPhoto.position", passive_deletes=True
+    )
     __table_args__ = (
         UniqueConstraint("user_id", "theme_id", name="review_user_theme"),
         *[
@@ -106,6 +113,16 @@ class Review(Row, Base):
             dialect="postgresql"
         ),
     )
+
+
+class ReviewPhoto(Row, Base):
+    __tablename__ = "review_photo"
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
+    review_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("review.id", ondelete="SET NULL"), index=True
+    )
+    object_key: Mapped[str] = mapped_column(String(200), unique=True)
+    position: Mapped[int] = mapped_column(default=0)
 
 
 class Friend(Row, Base):

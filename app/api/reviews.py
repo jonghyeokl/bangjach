@@ -10,12 +10,22 @@ from app.core.errors import fail
 from app.core.security import DB, CurrentUser
 from app.domain import responses as out
 from app.domain.enums import LABELS, ReviewKeyword
-from app.domain.models import Review, Theme, now
+from app.domain.models import Friend, Review, Theme, now
 from app.domain.schemas import ReviewCreate, ReviewPatch
-from app.services import keywords, views
+from app.services import keywords, photos, views
 from app.services.limits import limit
+from app.services.privacy import friend_condition
 
 router = APIRouter(tags=["reviews"])
+
+
+@router.get("/feed/v1", response_model=out.PageResponse[out.ReviewResponse])
+async def feed(db: DB, user: CurrentUser, page: Page = 1, page_size: Size = 20):
+    friends = select(Friend.id).where(friend_condition(user.id, Review.user_id)).exists()
+    query = views.REVIEW_QUERY.where(friends, Review.user_id != user.id).order_by(
+        Review.created_dt.desc(), Review.id.desc()
+    )
+    return await views.paginate(db, query, page, page_size, views.review)
 
 
 async def get_review(db, review_id):
@@ -37,8 +47,12 @@ async def create(body: ReviewCreate, db: DB, user: CurrentUser):
     uid = user.id
     await db.rollback()
     analysis = await keywords.analyze(body.content)
-    row = Review(user_id=uid, **body.model_dump(), **analysis)
+    data = body.model_dump()
+    photo_ids = data.pop("photo_ids")
+    row = Review(user_id=uid, **data, **analysis)
     db.add(row)
+    await db.flush()
+    await photos.attach(db, uid, row.id, photo_ids)
     await db.commit()
     return await get_review(db, row.id)
 
@@ -89,6 +103,7 @@ async def patch(review_id: UUID, body: ReviewPatch, db: DB, user: CurrentUser):
     await db.rollback()
     if "content" in data and data["content"] != old_content:
         data.update(await keywords.analyze(data["content"]))
+    photo_ids = data.pop("photo_ids", None)
     result = await db.execute(
         update(Review)
         .where(Review.id == review_id, Review.user_id == uid, Review.updated_dt == version)
@@ -96,6 +111,8 @@ async def patch(review_id: UUID, body: ReviewPatch, db: DB, user: CurrentUser):
     )
     if not result.rowcount:
         fail(409, "REVIEW_CHANGED", "리뷰가 변경되거나 삭제되었습니다. 새로고침하세요.")
+    if photo_ids is not None:
+        await photos.attach(db, uid, review_id, photo_ids)
     await db.commit()
     return await get_review(db, review_id)
 
@@ -107,6 +124,7 @@ async def delete(review_id: UUID, db: DB, user: CurrentUser):
         fail(404, "REVIEW_NOT_FOUND", "리뷰를 찾을 수 없습니다.")
     if row.user_id != user.id:
         fail(403, "FORBIDDEN", "본인의 리뷰만 삭제할 수 있습니다.")
+    await photos.attach(db, user.id, review_id, [])
     await db.delete(row)
     await db.commit()
     return Response(status_code=204)

@@ -96,3 +96,14 @@ PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회
 - [운영 적용·배포 절차](docs/deployment.md)
 
 현재 검증은 로컬 코드·DB·앱 대상이다. 운영 DB 마이그레이션, Cloud Run 재배포, GitHub 트리거 변경, Scheduler 설정, 실제 LLM 호출은 별도 적용이 필요하다. Dockerfile을 추가했으며 컨테이너 이미지를 실제 빌드/배포한 것은 아니다. 기존 Procfile도 유지한다.
+
+
+## 친구 피드와 리뷰 사진
+
+- `GET /feed/v1?page=1&page_size=20`: 로그인 필요. 수락된 친구의 리뷰만 `created_dt DESC, id DESC`. 본인·요청 대기 사용자 제외.
+- 리뷰 응답: `theme_image_url`, `photos: [{id, url}]` 포함. 사진 URL은 API 기준 상대 경로.
+- `POST /media/v1/review-photos`: 로그인 후 이미지 파일 바이트 전송 (`application/octet-stream`). `{id, url}` 반환. 이 단계에서는 공개되지 않는다.
+- 리뷰 작성/수정 JSON에 `photo_ids: [uuid, ...]` (최대 5개). 본인의 미사용 사진 또는 해당 리뷰의 기존 사진만 허용. 수정 시 생략하면 유지, `[]`는 모두 제거.
+- 사진: JPEG/PNG/WebP, 최대 8MB·2,500만 화소. 긴 변 1600px 이하 JPEG로 변환하며 EXIF 제거. 리뷰 삭제·사진 제거 즉시 공개 접근 차단.
+- 운영: 비공개 Google Cloud Storage, 개발: `.uploads/review-photos`. [최초 적용 명령](docs/deployment.md#리뷰-사진-기능-최초-적용).
+- 미저장·분리된 사진은 `python -m app.jobs.cleanup_photos`로 24시간 이후 정리. 자동 스케줄 미등록.

@@ -1,20 +1,113 @@
-# 운영 적용 순서
+# 배포 명령어
 
-현재 저장소는 실행 가능한 코드와 마이그레이션을 포함한다. 이 문서의 명령은 준비된 절차이며 실제 실행 완료를 뜻하지 않는다. 서비스와 DB의 기존 설정·데이터를 확인하고 적용한다.
+기본값 설정 완료: 프로젝트 `bangjach-api`, 리전 `asia-northeast3`. 아래 명령에서는 생략한다.
 
-1. PostgreSQL 백업 후 운영 DATABASE_URL을 사용하는 별도 마이그레이션 작업에서 `alembic upgrade head`를 실행한다. 웹 서버 시작마다 실행하지 않는다. 이번 초기 마이그레이션은 도메인 테이블 9개와 호출 제한 테이블 1개를 추가한다.
-2. Cloud Run에 ENVIRONMENT=production, DATABASE_URL, 최소 32자의 JWT_SECRET, CORS_ORIGINS를 설정한다. DATABASE_URL/JWT_SECRET/LLM_API_KEY는 Secret Manager 연동을 권장한다. 로컬 .env는 배포에 포함되지 않는다.
-3. 관리자 계정을 정상 가입하고 `/user/v1/me`의 UUID를 ADMIN_USER_IDS JSON 배열에 추가한다. 휴대폰번호나 닉네임으로 관리자 권한을 부여하지 않는다.
-4. 소스 또는 컨테이너로 `bangjach-api`를 배포한다. Dockerfile은 Python 3.14와 PORT를 사용한다. 기존 Buildpacks 방식은 Procfile을 동일하게 유지한다. Dockerfile이 있는 소스 배포는 Dockerfile을 사용하므로 자동 빌드 트리거의 빌드 유형도 확인한다.
-5. `/api/v1/health`, `/docs`와 로그인·리뷰 API를 점검한다. health는 DB 연결 점검이 아니다.
-6. 같은 이미지·DB 설정을 사용하는 Cloud Run Job을 만들고 실행 명령을 `python`, 인자를 `-m,app.jobs.statistics`로 설정한다. 새벽 04:00 Asia/Seoul을 초기 실행 시각으로 사용한다. Cloud Scheduler가 인증하여 Job을 실행하게 하고 호출 계정에 해당 Job 실행 권한만 부여한다.
-7. LLM_BASE_URL(예: 공급자 API의 /v1까지), LLM_MODEL, LLM_API_KEY를 설정한다. `/chat/completions`, JSON response_format을 지원하는지 확인하고 짧은 리뷰로 COMPLETED와 빈 배열·실패 경로를 점검한다.
-8. 앱 EXPO_PUBLIC_API_URL을 Cloud Run 서비스의 루트 URL로 설정하고 앱을 다시 빌드한다. 클라이언트 공개 변수에 DB/LLM 비밀 키를 넣지 않는다.
+## 백엔드 코드 변경
 
-## GitHub 연결
+변경 사항을 커밋한 뒤 자동 배포에 연결된 브랜치에서 실행한다.
 
-두 저장소에 CI 검사 워크플로가 있다. 기존 Cloud Run의 GitHub 자동 빌드 트리거는 외부 설정이므로 코드를 추가했다고 자동으로 변경되지 않는다. 첫 운영 적용에서는 마이그레이션 후 서비스 배포 순서를 지켜야 한다. 이후 스키마 변경도 마이그레이션 검증을 거쳐 적용한다.
+```bash
+git push
+```
 
-## 로컬과 운영 분리
+## DB 구조 변경
 
-검증용 PostgreSQL은 localhost의 별도 포트/DB를 사용한다. tests/seed_e2e.py는 로컬 bangjach_test 사용자 접속만 허용하며 해당 테스트 DB 데이터를 지운다. 운영 DB에서는 실행하지 않는다. 실제 데이터는 관리자 POST /cafe/v1, POST /theme/v1으로 입력한다.
+마이그레이션 파일을 작성·검증한 뒤 적용한다. 기존 서버와 호환되는 변경은 DB 적용 후 push한다. 컬럼 삭제·이름 변경은 적용 순서를 별도 확인한다.
+
+첫 번째 터미널:
+
+```bash
+cloud-sql-proxy --port 5433 bangjach-api:asia-northeast3:bangjach-postgresql
+```
+
+두 번째 터미널:
+
+```bash
+cd /Users/jonghyeok/bangjach/bangjach
+source .venv/bin/activate
+unset DATABASE_URL
+alembic upgrade head
+alembic current
+```
+
+## 운영 환경변수 변경
+
+```bash
+gcloud run services update bangjach-api --update-env-vars '변수명=새값'
+```
+
+여러 변수:
+
+```bash
+gcloud run services update bangjach-api --update-env-vars '변수1=값1,변수2=값2'
+```
+
+변경 시 자동 재배포된다. 로컬 `.env`는 push해도 반영되지 않으며, `JWT_SECRET`은 유지한다.
+
+## 배포 후 확인
+
+```bash
+curl -i 'https://bangjach-api-192693215385.asia-northeast3.run.app/cafe/v1'
+```
+
+`200` 응답 확인 후 변경한 기능을 테스트한다.
+
+## 앱 실행
+
+```bash
+cd /Users/jonghyeok/bangjach/bangjach-app
+npx expo start
+```
+
+환경변수 변경 후에는 `npx expo start --clear`. 설치 앱 배포는 별도 빌드·업데이트가 필요하다.
+
+## DB 연결 구분
+
+- 로컬 `.env`: `127.0.0.1:5433` → 프록시를 통해 **운영 DB**에 연결.
+- Cloud Run: `/cloudsql/bangjach-api:asia-northeast3:bangjach-postgresql` 소켓 사용.
+- 테스트는 별도 테스트 DB에서 실행. 운영 DB에서 테스트 데이터 초기화 스크립트를 실행하지 않는다.
+
+## 컬럼 순서
+
+`id → 테이블별 항목 → created_dt → updated_dt`. `rate_limit`은 `key → window → count`.
+2026-11-02 초기 마이그레이션을 이 순서로 수정하고, 사용자 요청에 따라 운영 DB를 데이터 없이 재생성했다.
+기존 DB에서 `alembic upgrade head`만 다시 실행해도 컬럼 순서가 바뀌지는 않는다.
+
+## 리뷰 사진 기능 최초 적용
+
+1. 위 DB 절차대로 `alembic upgrade head` 실행 (`b7c81d29e104`). 기존 데이터는 유지된다.
+2. 사진 저장소 생성·권한 설정 (한 번만):
+
+```bash
+gcloud storage buckets create gs://bangjach-api-192693215385-review-photos --location=asia-northeast3 --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets add-iam-policy-binding gs://bangjach-api-192693215385-review-photos --member=serviceAccount:192693215385-compute@developer.gserviceaccount.com --role=roles/storage.objectUser
+```
+
+Cloud Run 서비스 계정을 변경했다면 `--member`에도 변경된 계정을 넣는다. 버킷 이름이 이미 사용 중이면 다른 이름으로 만들고 아래 값도 맞춘다.
+
+3. 코드 커밋·push 후 자동 배포 완료 확인, 환경변수 적용:
+
+```bash
+gcloud run services update bangjach-api --update-env-vars 'REVIEW_PHOTO_BUCKET=bangjach-api-192693215385-review-photos'
+```
+
+4. 앱 재시작:
+
+```bash
+cd /Users/jonghyeok/bangjach/bangjach-app
+source ../dev-env.sh
+npm ci
+npx expo start --clear
+```
+
+사진 없는 리뷰·피드도 새 DB 마이그레이션이 필요하다. 운영 저장소 설정 전에는 사진 업로드가 503으로 안내된다. 저장소는 공개하지 않고 API에서 게시된 리뷰 사진만 제공한다.
+
+미저장·삭제된 사진 정리 (24시간 이후, 동일 DB/버킷 설정 환경에서 주기적으로 실행):
+
+```bash
+python -m app.jobs.cleanup_photos
+```
+
+자동 스케줄은 아직 등록하지 않았다. 로컬에서 운영 사진 정리 시에도 `REVIEW_PHOTO_BUCKET`을 운영 값으로 설정해야 한다.
+
+참고: [버킷 생성](https://docs.cloud.google.com/sdk/gcloud/reference/storage/buckets/create), [버킷 권한 설정](https://docs.cloud.google.com/sdk/gcloud/reference/storage/buckets/add-iam-policy-binding).

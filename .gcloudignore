@@ -12,3 +12,5 @@ __pycache__/
 *.db
 *.db-*
 .DS_Store
+
+.uploads/

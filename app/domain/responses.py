@@ -89,10 +89,17 @@ class ThemeResponse(ThemeSummaryResponse):
     updated_dt: datetime
 
 
+class PhotoResponse(BaseModel):
+    id: UUID
+    url: str
+
+
 class ReviewResponse(BaseModel):
     id: UUID
     theme_id: UUID
     theme_name: str
+    theme_image_url: str | None
+    photos: list[PhotoResponse]
     cafe_name: str
     author: PublicUserResponse
     rating: float
