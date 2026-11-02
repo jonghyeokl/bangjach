@@ -106,17 +106,19 @@ def cafe_payload(row):
 
 
 def normalize_import_photo(path):
-    if path.stat().st_size > 12 * 1024 * 1024:
-        raise ValueError("원본 사진이 12MB를 초과합니다.")
+    if path.stat().st_size > 32 * 1024 * 1024:
+        raise ValueError("원본 사진이 32MB를 초과합니다.")
     with warnings.catch_warnings():
         warnings.simplefilter("error", Image.DecompressionBombWarning)
         with Image.open(path) as original:
-            if original.format not in {"JPEG", "PNG", "WEBP"}:
-                raise ValueError("JPEG/PNG/WebP 사진만 지원합니다.")
+            if original.format not in {"JPEG", "PNG", "WEBP", "GIF"}:
+                raise ValueError("JPEG/PNG/WebP/GIF 사진만 지원합니다.")
             if original.width * original.height > 64_000_000:
                 raise ValueError("원본 사진이 6,400만 화소를 초과합니다.")
             # Large imported posters are downsampled before the normal upload validation.
             # The public upload API's 25 MP limit is unchanged.
+            # Animated posters use their first frame as a static theme photo.
+            original.seek(0)
             original.draft("RGB", (1600, 1600))
             image = ImageOps.exif_transpose(original)
             image.thumbnail((1600, 1600))

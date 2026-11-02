@@ -46,6 +46,18 @@ def test_read_export_requires_100_unique_ranked_themes(tmp_path):
         read()
 
 
+def test_animated_import_photo_uses_first_frame(tmp_path):
+    path = tmp_path / "poster.gif"
+    first = Image.new("RGB", (40, 40), "red")
+    second = Image.new("RGB", (40, 40), "blue")
+    first.save(path, save_all=True, append_images=[second], duration=100, loop=0)
+    data = normalize_import_photo(path)
+    with Image.open(BytesIO(data)) as photo:
+        assert photo.format == "JPEG" and not getattr(photo, "is_animated", False)
+        red, green, blue = photo.getpixel((20, 20))
+        assert red > 240 and green < 10 and blue < 10
+
+
 def source(tmp_path):
     image = tmp_path / "poster.png"
     Image.new("RGB", (1800, 900), "green").save(image)
