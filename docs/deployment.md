@@ -8,6 +8,7 @@
 - DB: `b7c81d29e104` 적용. 기존 데이터 보존.
 - 사진: 비공개 버킷 `bangjach-api-192693215385-review-photos`, Cloud Run 접근 권한·환경변수 설정.
 - 정기 작업: `bangjach-maintenance`. `bangjach-daily-maintenance` 예약으로 매일 **한국 시간 04:00**에 통계 갱신·24시간 지난 미사용 사진 정리.
+- 정기 작업은 빌드팩 런처(`/cnb/lifecycle/launcher`)로 `python -m app.jobs.maintenance` 실행. 실제 실행 성공 확인.
 - `main` push → `cloudbuild.yaml` → API 자동 배포 + 정기 작업 이미지 갱신.
 - 백엔드·앱은 별도 저장소. 앱 push는 소스 저장이며 App Store 배포는 아니다.
 
