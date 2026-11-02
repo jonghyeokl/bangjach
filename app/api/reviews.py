@@ -38,8 +38,11 @@ async def get_review(db, review_id):
 @router.post("/review/v1", status_code=201, response_model=out.ReviewResponse)
 async def create(body: ReviewCreate, db: DB, user: CurrentUser):
     await limit(db, "review:" + str(user.id), 10)
-    if not await db.get(Theme, body.theme_id):
+    theme = await db.get(Theme, body.theme_id)
+    if not theme:
         fail(404, "THEME_NOT_FOUND", "테마를 찾을 수 없습니다.")
+    if body.played_time is not None and body.played_time > theme.length * 60:
+        fail(422, "INVALID_PLAYED_TIME", "플레이 시간이 테마 전체 시간보다 길 수 없습니다.")
     if await db.scalar(
         select(Review.id).where(Review.user_id == user.id, Review.theme_id == body.theme_id)
     ):
@@ -77,7 +80,9 @@ async def listing(
             Review.keyword_analysis_status == 2, (and_ if keyword_match == "all" else or_)(*tests)
         )
     if people_size:
-        query = query.where(Review.people_size == people_size)
+        query = query.where(
+            Review.people_size >= 5 if people_size >= 5 else Review.people_size == people_size
+        )
     query = query.order_by(
         Review.created_dt.desc() if sort == "newest" else Review.created_dt,
         Review.id.desc() if sort == "newest" else Review.id,
@@ -99,6 +104,10 @@ async def patch(review_id: UUID, body: ReviewPatch, db: DB, user: CurrentUser):
     if row.user_id != user.id:
         fail(403, "FORBIDDEN", "본인의 리뷰만 수정할 수 있습니다.")
     data = body.model_dump(exclude_unset=True)
+    if data.get("played_time") is not None:
+        theme = await db.get(Theme, row.theme_id)
+        if data["played_time"] > theme.length * 60:
+            fail(422, "INVALID_PLAYED_TIME", "플레이 시간이 테마 전체 시간보다 길 수 없습니다.")
     version, old_content, uid = row.updated_dt, row.content, user.id
     await db.rollback()
     if "content" in data and data["content"] != old_content:
@@ -142,6 +151,8 @@ async def chips(theme_id: UUID, db: DB, people_size: Annotated[int | None, Query
             array_contains(db, Review.review_keyword_list, code),
         )
         if people_size:
-            query = query.where(Review.people_size == people_size)
+            query = query.where(
+                Review.people_size >= 5 if people_size >= 5 else Review.people_size == people_size
+            )
         items.append({"keyword": code, "label": label, "review_count": await db.scalar(query)})
     return {"items": items}

@@ -459,3 +459,44 @@ async def test_party_search_only_returns_allowed_friends(client):
             params={"exclude_played": True, "party_user_id": friend["id"]},
         )
     ).status_code == 403
+
+
+async def test_review_party_buckets_time_bounds_and_latest_order(client, monkeypatch):
+    _, headers, theme, _ = await catalog(client)
+
+    async def analysis(content):
+        return {"review_keyword_list": [1], "keyword_analysis_status": 2}
+
+    monkeypatch.setattr(keywords, "analyze", analysis)
+    body = {"theme_id": theme["id"], "rating": 4.5, "date": "2026-11-03", "content": "인테리어"}
+    bad = await client.post("/review/v1", headers=headers, json={**body, "played_time": 3601})
+    assert bad.status_code == 422
+    first = await client.post(
+        "/review/v1", headers=headers, json={**body, "people_size": 8, "played_time": 2850}
+    )
+    assert first.status_code == 201
+    assert first.json()["people_size"] == 5 and first.json()["played_time"] == 2850
+    rid = first.json()["id"]
+    patch = await client.patch(
+        f"/review/v1/{rid}", headers=headers, json={"people_size": 7, "played_time": 0}
+    )
+    assert (
+        patch.status_code == 200
+        and patch.json()["people_size"] == 5
+        and patch.json()["played_time"] == 0
+    )
+    assert (
+        await client.patch(f"/review/v1/{rid}", headers=headers, json={"played_time": 3601})
+    ).status_code == 422
+    _, other, _ = await account(client, "두번째", "01099998888")
+    second = await client.post("/review/v1", headers=other, json={**body, "people_size": 5})
+    assert second.status_code == 201
+    items = (await client.get(f"/review/v1?theme_id={theme['id']}&people_size=5&keyword=1")).json()[
+        "items"
+    ]
+    assert [r["id"] for r in items] == [second.json()["id"], rid]
+    assert (await client.get(f"/review/v1?theme_id={theme['id']}&people_size=4")).json()[
+        "total"
+    ] == 0
+    chips = (await client.get(f"/theme/v1/{theme['id']}/review-keywords?people_size=5")).json()
+    assert chips["items"][0]["review_count"] == 2

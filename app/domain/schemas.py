@@ -120,6 +120,11 @@ class ReviewFields(Input):
     horrorness: Score | None = None
     physicality: Score | None = None
 
+    @field_validator("people_size")
+    @classmethod
+    def people_bucket(cls, value):
+        return min(value, 5) if value is not None else None
+
     @field_validator("content")
     @classmethod
     def trim(cls, v):
