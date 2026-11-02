@@ -1,18 +1,31 @@
 # 배포 명령어
 
-기본값 설정 완료: 프로젝트 `bangjach-api`, 리전 `asia-northeast3`. 아래 명령에서는 생략한다.
+기본값: 프로젝트 `bangjach-api`, 리전 `asia-northeast3`.
 
-## 백엔드 코드 변경
+## 적용된 설정 (2026-11-02)
 
-변경 사항을 커밋한 뒤 자동 배포에 연결된 브랜치에서 실행한다.
+- 운영 API: https://bangjach-api-192693215385.asia-northeast3.run.app
+- DB: `b7c81d29e104` 적용. 기존 데이터 보존.
+- 사진: 비공개 버킷 `bangjach-api-192693215385-review-photos`, Cloud Run 접근 권한·환경변수 설정.
+- 정기 작업: `bangjach-maintenance`. `bangjach-daily-maintenance` 예약으로 매일 **한국 시간 04:00**에 통계 갱신·24시간 지난 미사용 사진 정리.
+- `main` push → `cloudbuild.yaml` → API 자동 배포 + 정기 작업 이미지 갱신.
+- 백엔드·앱은 별도 저장소. 앱 push는 소스 저장이며 App Store 배포는 아니다.
+
+## 코드 변경
+
+관련 검사 후 각 저장소에서 실행한다. 작업 중인 비밀값이나 무관한 파일은 추가하지 않는다.
 
 ```bash
-git push
+git add <변경한 파일>
+git commit -m 'feat/short summary'
+git push origin main
 ```
+
+오류 수정 커밋은 `fix/short summary`. 제목은 짧은 영어로 작성한다. 작업 후 commit·push는 기본 작업 규칙이다.
 
 ## DB 구조 변경
 
-마이그레이션 파일을 작성·검증한 뒤 적용한다. 기존 서버와 호환되는 변경은 DB 적용 후 push한다. 컬럼 삭제·이름 변경은 적용 순서를 별도 확인한다.
+기존 서버와 호환되는 변경은 마이그레이션을 먼저 적용한 뒤 push한다. 삭제·이름 변경은 적용 순서를 따로 검토한다.
 
 첫 번째 터미널:
 
@@ -30,84 +43,52 @@ alembic upgrade head
 alembic current
 ```
 
+로컬 `.env`의 `127.0.0.1:5433`은 프록시를 통한 운영 DB 연결이다. 테스트 데이터 초기화에는 사용하지 않는다.
+Cloud Run은 `/cloudsql/bangjach-api:asia-northeast3:bangjach-postgresql` 소켓을 사용한다.
+
 ## 운영 환경변수 변경
 
 ```bash
 gcloud run services update bangjach-api --update-env-vars '변수명=새값'
 ```
 
-여러 변수:
+DB·사진 버킷 등 정기 작업도 사용하는 값을 바꿨다면 함께 적용한다.
 
 ```bash
-gcloud run services update bangjach-api --update-env-vars '변수1=값1,변수2=값2'
+gcloud run jobs update bangjach-maintenance --update-env-vars '변수명=새값'
 ```
 
-변경 시 자동 재배포된다. 로컬 `.env`는 push해도 반영되지 않으며, `JWT_SECRET`은 유지한다.
+로컬 `.env`는 push해도 운영에 반영되지 않는다. 기존 `JWT_SECRET`은 유지한다.
 
-## 배포 후 확인
+## 배포·정기 작업 확인
 
 ```bash
 curl -i 'https://bangjach-api-192693215385.asia-northeast3.run.app/cafe/v1'
+gcloud builds list --region=global --limit=3
+gcloud run jobs executions list --job=bangjach-maintenance
 ```
 
-`200` 응답 확인 후 변경한 기능을 테스트한다.
+수동 정기 작업 실행:
+
+```bash
+gcloud scheduler jobs run bangjach-daily-maintenance --location=asia-northeast3
+```
 
 ## 앱 실행
 
 ```bash
 cd /Users/jonghyeok/bangjach/bangjach-app
-npx expo start
-```
-
-환경변수 변경 후에는 `npx expo start --clear`. 설치 앱 배포는 별도 빌드·업데이트가 필요하다.
-
-## DB 연결 구분
-
-- 로컬 `.env`: `127.0.0.1:5433` → 프록시를 통해 **운영 DB**에 연결.
-- Cloud Run: `/cloudsql/bangjach-api:asia-northeast3:bangjach-postgresql` 소켓 사용.
-- 테스트는 별도 테스트 DB에서 실행. 운영 DB에서 테스트 데이터 초기화 스크립트를 실행하지 않는다.
-
-## 컬럼 순서
-
-`id → 테이블별 항목 → created_dt → updated_dt`. `rate_limit`은 `key → window → count`.
-2026-11-02 초기 마이그레이션을 이 순서로 수정하고, 사용자 요청에 따라 운영 DB를 데이터 없이 재생성했다.
-기존 DB에서 `alembic upgrade head`만 다시 실행해도 컬럼 순서가 바뀌지는 않는다.
-
-## 리뷰 사진 기능 최초 적용
-
-1. 위 DB 절차대로 `alembic upgrade head` 실행 (`b7c81d29e104`). 기존 데이터는 유지된다.
-2. 사진 저장소 생성·권한 설정 (한 번만):
-
-```bash
-gcloud storage buckets create gs://bangjach-api-192693215385-review-photos --location=asia-northeast3 --uniform-bucket-level-access --public-access-prevention
-gcloud storage buckets add-iam-policy-binding gs://bangjach-api-192693215385-review-photos --member=serviceAccount:192693215385-compute@developer.gserviceaccount.com --role=roles/storage.objectUser
-```
-
-Cloud Run 서비스 계정을 변경했다면 `--member`에도 변경된 계정을 넣는다. 버킷 이름이 이미 사용 중이면 다른 이름으로 만들고 아래 값도 맞춘다.
-
-3. 코드 커밋·push 후 자동 배포 완료 확인, 환경변수 적용:
-
-```bash
-gcloud run services update bangjach-api --update-env-vars 'REVIEW_PHOTO_BUCKET=bangjach-api-192693215385-review-photos'
-```
-
-4. 앱 재시작:
-
-```bash
-cd /Users/jonghyeok/bangjach/bangjach-app
 source ../dev-env.sh
-npm ci
 npx expo start --clear
 ```
 
-사진 없는 리뷰·피드도 새 DB 마이그레이션이 필요하다. 운영 저장소 설정 전에는 사진 업로드가 503으로 안내된다. 저장소는 공개하지 않고 API에서 게시된 리뷰 사진만 제공한다.
+휴대폰과 컴퓨터를 같은 Wi-Fi에 연결하고 Expo Go에서 QR 코드를 연다. 설치 앱·스토어 배포는 별도 빌드가 필요하다.
 
-미저장·삭제된 사진 정리 (24시간 이후, 동일 DB/버킷 설정 환경에서 주기적으로 실행):
+## 참고
 
-```bash
-python -m app.jobs.cleanup_photos
-```
+컬럼 순서: `id → 테이블별 항목 → created_dt → updated_dt`. `rate_limit`은 `key → window → count`.
+2026-11-02 사용자의 데이터 삭제 허용에 따라 기존 DB를 이 순서로 재생성했다. 이번 사진 테이블 추가는 기존 데이터를 삭제하지 않았다.
 
-자동 스케줄은 아직 등록하지 않았다. 로컬에서 운영 사진 정리 시에도 `REVIEW_PHOTO_BUCKET`을 운영 값으로 설정해야 한다.
+사진 선택/업로드 실기기 확인과 실제 LLM 공급자 설정은 별도다. 사진·정기 작업 설정은 완료했으며 최초 생성 명령을 다시 실행할 필요 없다.
 
-참고: [버킷 생성](https://docs.cloud.google.com/sdk/gcloud/reference/storage/buckets/create), [버킷 권한 설정](https://docs.cloud.google.com/sdk/gcloud/reference/storage/buckets/add-iam-policy-binding).
+[Cloud Run 정기 실행 안내](https://docs.cloud.google.com/run/docs/execute/jobs-on-schedule)

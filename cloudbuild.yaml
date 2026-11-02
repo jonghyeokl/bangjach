@@ -1,0 +1,66 @@
+images:
+- $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+steps:
+- args:
+  - build
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+  - --builder=gcr.io/buildpacks/builder:latest
+  - --network=cloudbuild
+  - --publish
+  - --path=.
+  - --env=GOOGLE_ENTRYPOINT
+  entrypoint: pack
+  env:
+  - GOOGLE_ENTRYPOINT=$_ENTRYPOINT
+  id: Buildpack
+  name: gcr.io/k8s-skaffold/pack
+- args:
+  - pull
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+  id: Pull
+  name: gcr.io/cloud-builders/docker
+- args:
+  - push
+  - $_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+  id: Push
+  name: gcr.io/cloud-builders/docker
+- args:
+  - run
+  - services
+  - update
+  - $_SERVICE_NAME
+  - --platform=managed
+  - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+  - --labels=managed-by=gcp-cloud-build-deploy-cloud-run,commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID,gcb-trigger-id=$_TRIGGER_ID
+  - --region=$_DEPLOY_REGION
+  - --quiet
+  entrypoint: gcloud
+  id: Deploy
+  name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+- name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+  entrypoint: gcloud
+  id: UpdateMaintenance
+  args:
+  - run
+  - jobs
+  - update
+  - bangjach-maintenance
+  - --image=$_AR_HOSTNAME/$_AR_PROJECT_ID/$_AR_REPOSITORY/$REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA
+  - --region=$_DEPLOY_REGION
+  - --quiet
+substitutions:
+  _AR_HOSTNAME: asia-northeast3-docker.pkg.dev
+  _AR_PROJECT_ID: bangjach-api
+  _AR_REPOSITORY: cloud-run-source-deploy
+  _DEPLOY_REGION: asia-northeast3
+  _ENTRYPOINT: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+  _PLATFORM: managed
+  _SERVICE_NAME: bangjach-api
+  _TRIGGER_ID: ed622e66-db76-4aca-b520-fba927cc0cad
+tags:
+- gcp-cloud-build-deploy-cloud-run
+- gcp-cloud-build-deploy-cloud-run-managed
+- bangjach-api

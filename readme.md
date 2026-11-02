@@ -105,5 +105,11 @@ PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회
 - `POST /media/v1/review-photos`: 로그인 후 이미지 파일 바이트 전송 (`application/octet-stream`). `{id, url}` 반환. 이 단계에서는 공개되지 않는다.
 - 리뷰 작성/수정 JSON에 `photo_ids: [uuid, ...]` (최대 5개). 본인의 미사용 사진 또는 해당 리뷰의 기존 사진만 허용. 수정 시 생략하면 유지, `[]`는 모두 제거.
 - 사진: JPEG/PNG/WebP, 최대 8MB·2,500만 화소. 긴 변 1600px 이하 JPEG로 변환하며 EXIF 제거. 리뷰 삭제·사진 제거 즉시 공개 접근 차단.
-- 운영: 비공개 Google Cloud Storage, 개발: `.uploads/review-photos`. [최초 적용 명령](docs/deployment.md#리뷰-사진-기능-최초-적용).
-- 미저장·분리된 사진은 `python -m app.jobs.cleanup_photos`로 24시간 이후 정리. 자동 스케줄 미등록.
+- 운영: 비공개 Google Cloud Storage, 개발: `.uploads/review-photos`. [배포·운영 명령](docs/deployment.md).
+- 미저장·분리된 사진은 `python -m app.jobs.cleanup_photos`로 24시간 이후 정리. 매일 한국 시간 04:00에 `bangjach-maintenance`에서 자동 실행.
+
+
+## 운영 적용 (2026-11-02)
+
+사진 테이블 마이그레이션과 비공개 Cloud Storage 연결을 적용했다. 운영 API에서 임시 계정의 로그인·친구 피드 조회·사진 업로드·로그아웃을 검증하고 계정/사진을 정리했다.
+`cloudbuild.yaml`은 main push 시 API와 정기 작업 이미지를 함께 갱신한다. 정기 작업은 매일 한국 시간 04:00에 통계 갱신과 미사용 사진 정리를 실행한다. 변경 후 commit·push와 짧은 영어 커밋 제목 규칙은 `AGENTS.md`에 기록했다.
