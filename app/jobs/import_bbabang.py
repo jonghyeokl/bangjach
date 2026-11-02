@@ -54,6 +54,7 @@ REGIONS = {
 }
 REGION_BY_NAME = {name: region for region, names in REGIONS.items() for name in names}
 SOURCE = "https://bbabang.net/#home"
+IMPORT_COUNT = 200
 
 
 def stable_id(kind, value):
@@ -69,18 +70,18 @@ def read_export(file):
     if (
         data.get("schema_version") != 1
         or data.get("source") != SOURCE
-        or data.get("count") != 30
-        or len(data.get("themes", [])) != 30
+        or data.get("count") != IMPORT_COUNT
+        or len(data.get("themes", [])) != IMPORT_COUNT
         or data.get("request", {}).get("sort") != ["recommendTotalRating:desc"]
         or set(data.get("request", {}).get("filter", []))
         != {"isopen != false", "store_isopen != false"}
         or data.get("request", {}).get("query") != ""
     ):
-        raise ValueError("지정한 조건의 빠방 테마 30개 파일이 아닙니다.")
+        raise ValueError(f"지정한 조건의 빠방 테마 {IMPORT_COUNT}개 파일이 아닙니다.")
     ids = [row.get("source_id") for row in data["themes"]]
-    if any(type(i) is not int or i < 0 for i in ids) or len(set(ids)) != 30:
+    if any(type(i) is not int or i < 0 for i in ids) or len(set(ids)) != IMPORT_COUNT:
         raise ValueError("원본 테마 ID가 없거나 중복되었습니다.")
-    if [row.get("rank") for row in data["themes"]] != list(range(1, 31)):
+    if [row.get("rank") for row in data["themes"]] != list(range(1, IMPORT_COUNT + 1)):
         raise ValueError("원본 순위가 올바르지 않습니다.")
     return data
 

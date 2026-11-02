@@ -1,4 +1,5 @@
 import asyncio
+import json
 from io import BytesIO
 
 import pytest
@@ -7,8 +8,42 @@ from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.domain.models import Cafe, Theme
-from app.jobs.import_bbabang import import_catalog, normalize_import_photo
+from app.jobs.import_bbabang import import_catalog, normalize_import_photo, read_export
 from app.services import photos
+
+
+def test_read_export_requires_200_unique_ranked_themes(tmp_path):
+    data = {
+        "schema_version": 1,
+        "source": "https://bbabang.net/#home",
+        "count": 200,
+        "request": {
+            "sort": ["recommendTotalRating:desc"],
+            "filter": ["isopen != false", "store_isopen != false"],
+            "query": "",
+        },
+        "themes": [{"source_id": i, "rank": i} for i in range(1, 201)],
+    }
+    file = tmp_path / "themes.json"
+
+    def read():
+        file.write_text(json.dumps(data), encoding="utf-8")
+        return read_export(file)
+
+    assert read() == data
+    last = data["themes"].pop()
+    data["count"] = 199
+    with pytest.raises(ValueError, match="200개"):
+        read()
+    data["count"] = 200
+    data["themes"].append(last)
+    last["source_id"] = 1
+    with pytest.raises(ValueError, match="중복"):
+        read()
+    last["source_id"] = 200
+    last["rank"] = 199
+    with pytest.raises(ValueError, match="순위"):
+        read()
 
 
 def source(tmp_path):
