@@ -1,4 +1,4 @@
-"""Private object storage; only photos attached to public reviews are served."""
+"""Private object storage for review photos and administrator-uploaded theme photos."""
 
 import warnings
 from io import BytesIO

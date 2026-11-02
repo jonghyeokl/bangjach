@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request, Response
-from sqlalchemy import case, select
+from sqlalchemy import case, exists, select
 
 from app.core.errors import fail
 from app.core.security import (
@@ -18,11 +18,11 @@ from app.core.security import (
     verify_password,
 )
 from app.domain import responses as out
-from app.domain.models import AuthSession, Review, User, UserSetting, now
+from app.domain.models import AuthSession, Friend, Review, User, UserSetting, now
 from app.domain.schemas import Login, Refresh, SettingsPatch, Signup, nickname
 from app.services import views
 from app.services.limits import limit
-from app.services.privacy import check_visibility, visible_condition
+from app.services.privacy import check_visibility, friend_condition, visible_condition
 
 router = APIRouter(prefix="/user/v1", tags=["users"])
 Page = Annotated[int, Query(ge=1)]
@@ -104,7 +104,8 @@ async def search(
     query = select(User).where(User.name.contains(q, autoescape=True), User.id != user.id)
     if purpose == "party":
         query = query.join(UserSetting).where(
-            visible_condition(user.id, UserSetting.party_search_publicity)
+            exists(select(Friend.id).where(friend_condition(user.id, User.id))),
+            visible_condition(user.id, UserSetting.party_search_publicity),
         )
     query = query.order_by(case((User.name == q, 0), else_=1), User.name, User.id)
     return await views.paginate(db, query, page, page_size, views.public_user)

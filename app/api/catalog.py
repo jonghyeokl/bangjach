@@ -1,19 +1,22 @@
 from decimal import Decimal
 from typing import Annotated, Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile
+from pydantic import Json
 from sqlalchemy import exists, func, or_, select
+from starlette.concurrency import run_in_threadpool
 
 from app.api.users import Page, Size
 from app.core.errors import fail
 from app.core.security import DB, Admin, Identity
 from app.domain import responses as out
 from app.domain.enums import LABELS, Genre, Region
-from app.domain.models import Cafe, Review, Theme, ThemeStatistics
+from app.domain.models import Cafe, Friend, Review, Theme, ThemeStatistics
 from app.domain.schemas import CafeCreate, ThemeCreate
-from app.services import views
-from app.services.privacy import check_visibility
+from app.services import photos, views
+from app.services.limits import limit
+from app.services.privacy import check_visibility, friend_condition
 
 router = APIRouter(tags=["catalog"])
 
@@ -44,6 +47,42 @@ async def create_theme(body: ThemeCreate, db: DB, user: Admin):
     row = Theme(**data)
     db.add(row)
     await db.commit()
+    return views.theme(row, place, None, True)
+
+
+@router.post("/theme/v1/with-photo", status_code=201, response_model=out.ThemeResponse)
+async def create_theme_with_photo(
+    db: DB, user: Admin, data: Annotated[Json[ThemeCreate], Form()], photo: UploadFile
+):
+    await limit(db, "theme-photo:" + str(user.id), 30)
+    place = await db.get(Cafe, data.cafe_id)
+    if not place:
+        fail(404, "CAFE_NOT_FOUND", "카페를 찾을 수 없습니다.")
+    content = await photo.read(photos.MAX_BYTES + 1)
+    if len(content) > photos.MAX_BYTES:
+        fail(413, "PHOTO_TOO_LARGE", "사진 한 장은 8MB 이하여야 합니다.")
+    normalized = await run_in_threadpool(photos.normalize, content)
+    theme_id = uuid4()
+    key = f"themes/{theme_id}.jpg"
+    try:
+        await run_in_threadpool(photos.write, key, normalized)
+    except HTTPException:
+        raise
+    except Exception:
+        fail(503, "PHOTO_UPLOAD_FAILED", "사진을 저장하지 못했어요. 잠시 후 다시 시도해주세요.")
+    values = data.model_dump(mode="json", exclude={"image_url"})
+    values["cafe_id"] = data.cafe_id
+    row = Theme(
+        **values,
+        id=theme_id,
+        image_url=f"/media/v1/theme-photos/{theme_id}",
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except Exception:
+        await run_in_threadpool(photos.remove, key)
+        raise
     return views.theme(row, place, None, True)
 
 
@@ -134,6 +173,10 @@ async def themes(
             fail(401, "UNAUTHORIZED", "로그인이 필요합니다.")
         ids = set(party_user_id or []) | {who[0].id}
         for target in ids:
+            if target != who[0].id and not await db.scalar(
+                select(Friend.id).where(friend_condition(who[0].id, target))
+            ):
+                fail(403, "FRIENDS_ONLY", "일행은 친구 목록에서만 선택할 수 있습니다.")
             await check_visibility(db, who[0].id, target, "party_search_publicity")
         query = query.where(
             ~exists(select(Review.id).where(Review.theme_id == Theme.id, Review.user_id.in_(ids)))

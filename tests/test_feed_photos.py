@@ -170,3 +170,59 @@ async def test_cleanup_keeps_published_and_recent_photos(client, factory):
             "published.jpg",
         }
         assert await cleanup(db) == 0
+
+
+@pytest.mark.asyncio
+async def test_theme_photo_creation_is_admin_only_and_atomic(client, factory, monkeypatch):
+    import json
+    from pathlib import Path
+
+    from sqlalchemy import func
+
+    from app.services import photos
+
+    _, headers, _, cafe = await catalog(client)
+    _, other_headers, _ = await account(client, "일반계정", "01022222222")
+    payload = {
+        "name": "사진 테마",
+        "cafe_id": cafe["id"],
+        "description": "직접 올린 사진",
+        "length": 60,
+        "website": "https://example.com/theme",
+    }
+    path = "/theme/v1/with-photo"
+
+    async def upload(auth=headers, content=None, data=None):
+        return await client.post(
+            path,
+            headers=auth,
+            data={"data": json.dumps(data or payload)},
+            files={"photo": ("photo.png", image_bytes() if content is None else content)},
+        )
+
+    assert (await upload(auth={})).status_code == 401
+    assert (await upload(auth=other_headers)).status_code == 403
+    assert (await upload(content=b"not a photo")).status_code == 422
+    assert (await upload(content=b"x" * (photos.MAX_BYTES + 1))).status_code == 413
+    assert (await upload(data={**payload, "length": 0})).status_code == 422
+    assert (await upload(data={**payload, "cafe_id": str(UUID(int=0))})).status_code == 404
+    assert not list(Path(settings.review_photo_local_dir).rglob("*.jpg"))
+    response = await upload()
+    assert response.status_code == 201, response.text
+    theme = response.json()
+    photo = await client.get(theme["image_url"])
+    assert photo.status_code == 200
+    assert photo.headers["content-type"] == "image/jpeg"
+    with Image.open(BytesIO(photo.content)) as image:
+        assert image.size == (1600, 800)
+        assert not image.getexif()
+    assert (await client.get(f"/theme/v1/{theme['id']}")).json()["image_url"] == theme["image_url"]
+    assert (await client.get(f"/media/v1/theme-photos/{UUID(int=0)}")).status_code == 404
+
+    def fail_write(*args):
+        raise OSError("storage failure")
+
+    monkeypatch.setattr(photos, "write", fail_write)
+    assert (await upload()).status_code == 503
+    async with factory() as db:
+        assert await db.scalar(select(func.count()).select_from(Theme)) == 2

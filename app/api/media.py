@@ -5,12 +5,28 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.errors import fail
 from app.core.security import DB, CurrentUser
-from app.domain.models import ReviewPhoto
+from app.domain.models import ReviewPhoto, Theme
 from app.domain.responses import PhotoResponse
 from app.services import photos
 from app.services.limits import limit
 
 router = APIRouter(tags=["photos"])
+
+
+@router.get("/media/v1/theme-photos/{theme_id}")
+async def theme_photo(theme_id: UUID, db: DB):
+    row = await db.get(Theme, theme_id)
+    if not row or row.image_url != f"/media/v1/theme-photos/{theme_id}":
+        fail(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+    try:
+        data = await run_in_threadpool(photos.read, f"themes/{theme_id}.jpg")
+    except Exception:
+        fail(503, "PHOTO_UNAVAILABLE", "사진을 불러오지 못했어요.")
+    return Response(
+        data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/media/v1/review-photos", status_code=201, response_model=PhotoResponse)

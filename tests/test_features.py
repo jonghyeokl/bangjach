@@ -420,3 +420,42 @@ async def test_admin_flag_tracks_server_allowlist(client):
             },
         )
     ).status_code == 403
+
+
+async def test_party_search_only_returns_allowed_friends(client):
+    owner, headers, _, _ = await catalog(client)
+    friend, fh, _ = await account(client, "일행친구", "01022222222")
+    outsider, xh, _ = await account(client, "일행타인", "01033333333")
+    # Even a stranger with public party visibility cannot be searched or supplied by ID.
+    await client.patch("/user/v1/me/settings", headers=xh, json={"party_search_publicity": 3})
+    request = await client.post(
+        "/friend-request/v1", headers=headers, json={"requested_user_name": friend["name"]}
+    )
+    await client.post(f"/friend-request/v1/{request.json()['id']}/accept", headers=fh)
+    params = {"q": "일행", "purpose": "party"}
+    response = await client.get("/user/v1/search", headers=headers, params=params)
+    assert [u["id"] for u in response.json()["items"]] == [friend["id"]]
+    assert (
+        await client.get(
+            "/theme/v1",
+            headers=headers,
+            params={"exclude_played": True, "party_user_id": outsider["id"]},
+        )
+    ).status_code == 403
+    # Friend discovery is intentionally separate and still finds non-friends.
+    assert (
+        await client.get(
+            "/user/v1/search", headers=headers, params={"q": "일행", "purpose": "friend"}
+        )
+    ).json()["total"] == 2
+    await client.patch("/user/v1/me/settings", headers=fh, json={"party_search_publicity": 1})
+    assert (await client.get("/user/v1/search", headers=headers, params=params)).json()[
+        "total"
+    ] == 0
+    assert (
+        await client.get(
+            "/theme/v1",
+            headers=headers,
+            params={"exclude_played": True, "party_user_id": friend["id"]},
+        )
+    ).status_code == 403
