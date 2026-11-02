@@ -387,3 +387,36 @@ async def test_postgres_constraints_and_concurrent_requests(client, factory):
             )
         )
         assert dtype == "ARRAY"
+
+
+async def test_admin_flag_tracks_server_allowlist(client):
+    user, headers, session = await account(client, "관리자권한검사")
+    assert user["is_admin"] is False
+    settings.admin_user_ids = [user["id"]]
+    assert (await client.get("/user/v1/me", headers=headers)).json()["is_admin"] is True
+    login = await client.post(
+        "/user/v1/log-in",
+        json={
+            "phone_number": user["phone_number"],
+            "password": "test-password",
+        },
+    )
+    assert login.json()["user"]["is_admin"] is True
+    refreshed = await client.post(
+        "/user/v1/refresh", json={"refresh_token": session["refresh_token"]}
+    )
+    assert refreshed.json()["user"]["is_admin"] is True
+    settings.admin_user_ids = []
+    assert (await client.get("/user/v1/me", headers=headers)).json()["is_admin"] is False
+    assert (
+        await client.post(
+            "/cafe/v1",
+            headers=headers,
+            json={
+                "name": "권한 회수 후",
+                "phone_number": "02",
+                "region": 1,
+                "address": "서울",
+            },
+        )
+    ).status_code == 403

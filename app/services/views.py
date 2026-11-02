@@ -1,6 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.domain.models import Cafe, Review, Theme, ThemeStatistics, User
 
 COUNTS = [
@@ -31,6 +32,7 @@ def own_user(user):
     return {
         **public_user(user),
         "phone_number": user.phone_number,
+        "is_admin": str(user.id) in settings.admin_user_ids,
         "created_dt": user.created_dt,
         "updated_dt": user.updated_dt,
     }

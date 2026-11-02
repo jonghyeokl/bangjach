@@ -128,6 +128,7 @@ async def tokens(db, user, session=None):
         "user": {
             "id": user.id,
             "phone_number": user.phone_number,
+            "is_admin": str(user.id) in settings.admin_user_ids,
             "name": user.name,
             "created_dt": user.created_dt,
             "updated_dt": user.updated_dt,

@@ -39,6 +39,15 @@ async def main():
         )
         db.add(theme)
         await db.flush()
+        admin = User(
+            id=UUID("00000000-0000-0000-0000-000000000099"),
+            phone_number="01079999999",
+            name="테스트어드민",
+            password_hash=await hash_password("test-password"),
+        )
+        db.add(admin)
+        await db.flush()
+        db.add(UserSetting(user_id=admin.id))
         for i in range(3):
             user = User(
                 phone_number=f"0107000000{i}",

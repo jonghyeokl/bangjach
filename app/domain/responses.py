@@ -21,6 +21,7 @@ class PublicUserResponse(BaseModel):
 
 class UserResponse(PublicUserResponse):
     phone_number: str
+    is_admin: bool
     created_dt: datetime
     updated_dt: datetime
 
