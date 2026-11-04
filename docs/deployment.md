@@ -2,15 +2,20 @@
 
 기본값: 프로젝트 `bangjach-api`, 리전 `asia-northeast3`.
 
-## 적용된 설정 (2026-11-02)
+## 적용된 설정 (2026-11-04)
 
 - 운영 API: https://bangjach-api-192693215385.asia-northeast3.run.app
-- DB: `b7c81d29e104` 적용. 기존 데이터 보존.
+- DB: `bangjach-postgresql-dev` — PostgreSQL 18, Enterprise `db-g1-small`, 단일 존, SSD 10GB(자동 증가 상한 20GB). 매일 백업 7개 보관.
+- 마이그레이션: `c49af128e307`. 기존 카페 67개·테마 100개·사용자·로그인 세션 이전 및 데이터 해시 검증.
+- Cloud Run: 최소 0개, 서비스 전체 최대 2개 인스턴스. API·정기 작업 모두 새 DB 사용.
 - 사진: 비공개 버킷 `bangjach-api-192693215385-review-photos`, Cloud Run 접근 권한·환경변수 설정.
 - 정기 작업: `bangjach-maintenance`. `bangjach-daily-maintenance` 예약으로 매일 **한국 시간 04:00**에 통계 갱신·24시간 지난 미사용 사진 정리.
 - 정기 작업은 빌드팩 런처(`/cnb/lifecycle/launcher`)로 `python -m app.jobs.maintenance` 실행. 실제 실행 성공 확인.
 - `main` push → `cloudbuild.yaml` → API 자동 배포 + 정기 작업 이미지 갱신.
 - 백엔드·앱은 별도 저장소. 앱 push는 소스 저장이며 App Store 배포는 아니다.
+
+- 기존 `bangjach-postgresql`과 MySQL `bangjach`은 중지 상태로 보존. 저장공간 비용은 삭제 전까지 남는다.
+- 이전 백업: `../backups/2026-11-04-db-migration/postgres-public.dump` (PostgreSQL 18 클라이언트로 복원). Git에 추가하지 않는다.
 
 ## 코드 변경
 
@@ -31,7 +36,7 @@ git push origin main
 첫 번째 터미널:
 
 ```bash
-cloud-sql-proxy --port 5433 bangjach-api:asia-northeast3:bangjach-postgresql
+cloud-sql-proxy --port 5433 bangjach-api:asia-northeast3:bangjach-postgresql-dev
 ```
 
 두 번째 터미널:
@@ -45,7 +50,7 @@ alembic current
 ```
 
 로컬 `.env`의 `127.0.0.1:5433`은 프록시를 통한 운영 DB 연결이다. 테스트 데이터 초기화에는 사용하지 않는다.
-Cloud Run은 `/cloudsql/bangjach-api:asia-northeast3:bangjach-postgresql` 소켓을 사용한다.
+Cloud Run은 `/cloudsql/bangjach-api:asia-northeast3:bangjach-postgresql-dev` 소켓을 사용한다.
 
 ## 운영 환경변수 변경
 
