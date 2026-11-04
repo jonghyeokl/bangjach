@@ -14,7 +14,7 @@
 - `main` push → `cloudbuild.yaml` → API 자동 배포 + 정기 작업 이미지 갱신.
 - 백엔드·앱은 별도 저장소. 앱 push는 소스 저장이며 App Store 배포는 아니다.
 
-- 기존 `bangjach-postgresql`과 MySQL `bangjach`은 중지 상태로 보존. 저장공간 비용은 삭제 전까지 남는다.
+- 기존 대형 PostgreSQL `bangjach-postgresql`과 MySQL `bangjach`은 사용자 승인 후 삭제. 현재 새 소형 DB만 사용한다.
 - 이전 백업: `../backups/2026-11-04-db-migration/postgres-public.dump` (PostgreSQL 18 클라이언트로 복원). Git에 추가하지 않는다.
 
 ## 코드 변경
