@@ -18,6 +18,19 @@
 
 ## 설치와 실행
 
+현재는 **로컬 PostgreSQL 18 + 로컬 사진 저장소**로 실행한다. 기존 클라우드 데이터는 보존해 이전했다. [일상 실행 명령어](docs/deployment.md).
+
+새 Mac에서 DB 최초 준비(기존 사용자·DB가 있으면 생성 명령은 생략):
+
+```bash
+brew install postgresql@18
+brew services start postgresql@18
+"$(brew --prefix postgresql@18)/bin/createuser" --login bangjach_local
+"$(brew --prefix postgresql@18)/bin/createdb" --owner=bangjach_local bangjach
+```
+
+`.env.example`은 Homebrew의 로컬 접속 설정 기준이다. 직접 인증을 설정한 DB는 비밀번호도 지정한다. DB는 `127.0.0.1:5432`, 사진은 `.uploads/review-photos`에 저장한다. 새 복제본은 빈 DB로 시작하며 실제 사용자 데이터와 수집 사진은 Git에 포함하지 않는다.
+
 Python 3.14.3 기준, 고정 의존성은 requirements.txt. 기존 .env를 복사 명령으로 덮어쓰지 않는다.
 
 ```bash
@@ -26,7 +39,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # 최초 복제 시에만
 cp .env.example .env
-# DATABASE_URL이 의도한 로컬 DB인지 먼저 확인
+# .env의 DATABASE_URL이 로컬 DB를 가리키는지 확인
+unset DATABASE_URL
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -37,7 +51,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 | 변수 | 용도 |
 | --- | --- |
-| DATABASE_URL | 로컬 SQLite 또는 `postgresql+asyncpg://...`. 운영은 PostgreSQL 필수 |
+| DATABASE_URL | 로컬 PostgreSQL: `postgresql+asyncpg://bangjach_local@127.0.0.1:5432/bangjach` |
 | ENVIRONMENT | production이면 PostgreSQL과 최소 32자 JWT_SECRET 검증 |
 | JWT_SECRET | 토큰 서명 비밀값. 개발에서 비우면 재시작 때 로그인이 만료됨 |
 | CORS_ORIGINS | 웹 출처의 JSON 배열, 기본 localhost/127.0.0.1:8081 |
@@ -63,7 +77,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 python -m app.jobs.statistics
 ```
 
-전체 리뷰의 같은 스냅샷으로 사용자 편향과 테마 통계를 갱신한다. 리뷰 수정/삭제 후 통계는 다음 작업에 반영된다. 운영은 Cloud Run Job과 Scheduler로 매일 04:00 Asia/Seoul 실행하도록 설정한다. 이 저장소 변경만으로 외부 예약이 생성되지는 않는다.
+전체 리뷰의 같은 스냅샷으로 사용자 편향과 테마 통계를 갱신한다. 리뷰 수정/삭제 후 통계는 다음 작업에 반영된다. 로컬에서는 필요할 때 수동 실행한다. 기존 Cloud Scheduler 예약은 로컬 전환으로 중지했다.
 
 ## 검증
 
@@ -95,7 +109,7 @@ PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회
 - [구현 결정과 요구사항 대응](docs/implementation.md)
 - [운영 적용·배포 절차](docs/deployment.md)
 
-현재 검증은 로컬 코드·DB·앱 대상이다. 운영 DB 마이그레이션, Cloud Run 재배포, GitHub 트리거 변경, Scheduler 설정, 실제 LLM 호출은 별도 적용이 필요하다. Dockerfile을 추가했으며 컨테이너 이미지를 실제 빌드/배포한 것은 아니다. 기존 Procfile도 유지한다.
+Cloud Run 배포 및 실제 API 검증 이력이 있으며, 현재는 로컬 실행으로 전환했다. Dockerfile·Procfile·cloudbuild.yaml은 재배포 시 사용할 수 있도록 남겨둔다. Cloud Build 자동 배포 트리거는 중지되어 있다.
 
 
 ## 친구 피드와 리뷰 사진
@@ -106,10 +120,10 @@ PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회
 - 리뷰 작성/수정 JSON에 `photo_ids: [uuid, ...]` (최대 5개). 본인의 미사용 사진 또는 해당 리뷰의 기존 사진만 허용. 수정 시 생략하면 유지, `[]`는 모두 제거.
 - 사진: JPEG/PNG/WebP, 최대 8MB·2,500만 화소. 긴 변 1600px 이하 JPEG로 변환하며 EXIF 제거. 리뷰 삭제·사진 제거 즉시 공개 접근 차단.
 - 운영: 비공개 Google Cloud Storage, 개발: `.uploads/review-photos`. [배포·운영 명령](docs/deployment.md).
-- 미저장·분리된 사진은 `python -m app.jobs.cleanup_photos`로 24시간 이후 정리. 매일 한국 시간 04:00에 `bangjach-maintenance`에서 자동 실행.
+- 미저장·분리된 사진은 `python -m app.jobs.cleanup_photos`로 24시간 이후 정리. 현재는 `python -m app.jobs.maintenance`로 수동 실행.
 
 
-## 운영 적용 (2026-11-02)
+## 과거 운영 적용 (2026-11-02, 현재 운영 중지)
 
 사진 테이블 마이그레이션과 비공개 Cloud Storage 연결을 적용했다. 운영 API에서 임시 계정의 로그인·친구 피드 조회·사진 업로드·로그아웃을 검증하고 계정/사진을 정리했다.
 `cloudbuild.yaml`은 main push 시 API와 정기 작업 이미지를 함께 갱신한다. 정기 작업은 매일 한국 시간 04:00에 통계 갱신과 미사용 사진 정리를 실행한다. 변경 후 commit·push와 짧은 영어 커밋 제목 규칙은 `AGENTS.md`에 기록했다.
