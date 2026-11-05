@@ -110,6 +110,7 @@ class Review(Row, Base):
         CheckConstraint("keyword_analysis_status BETWEEN 1 AND 3", name="review_analysis"),
         Index("review_theme_created", "theme_id", "created_dt", "id"),
         Index("review_user_created", "user_id", "created_dt", "id"),
+        Index("review_created", "created_dt", "id"),
         Index("review_calendar", "user_id", "date", "id"),
         Index("review_keywords_gin", "review_keyword_list", postgresql_using="gin").ddl_if(
             dialect="postgresql"
@@ -118,6 +119,13 @@ class Review(Row, Base):
             dialect="postgresql"
         ),
     )
+
+
+class ReviewLike(Row, Base):
+    __tablename__ = "review_like"
+    review_id: Mapped[UUID] = mapped_column(ForeignKey("review.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
+    __table_args__ = (UniqueConstraint("review_id", "user_id", name="review_like_pair"),)
 
 
 class ReviewPhoto(Row, Base):

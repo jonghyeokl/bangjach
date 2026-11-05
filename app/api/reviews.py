@@ -1,8 +1,12 @@
+from datetime import timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Response
 from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import delete as sql_delete
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.api.catalog import array_contains
 from app.api.users import Page, Size
@@ -10,26 +14,40 @@ from app.core.errors import fail
 from app.core.security import DB, CurrentUser, Identity
 from app.domain import responses as out
 from app.domain.enums import LABELS, ReviewKeyword
-from app.domain.models import Review, Theme, now
+from app.domain.models import Review, ReviewLike, Theme, now
 from app.domain.schemas import ReviewCreate, ReviewPatch
 from app.services import keywords, photos, views
 from app.services.limits import limit
-from app.services.privacy import check_visibility, follows, visible_condition
+from app.services.privacy import check_visibility, follows, public_condition, visible_condition
 
 router = APIRouter(tags=["reviews"])
 
 
 @router.get("/feed/v1", response_model=out.PageResponse[out.ReviewResponse])
-async def feed(db: DB, user: CurrentUser, page: Page = 1, page_size: Size = 20):
-    friends = follows(user.id, Review.user_id)
-    query = views.REVIEW_QUERY.where(friends, Review.user_id != user.id).order_by(
-        Review.created_dt.desc(), Review.id.desc()
+async def feed(
+    db: DB,
+    user: CurrentUser,
+    scope: Literal["following", "all"] = "following",
+    sort: Literal["newest", "likes"] = "newest",
+    page: Page = 1,
+    page_size: Size = 20,
+):
+    current = now()
+    followed = follows(user.id, Review.user_id)
+    audience = followed if scope == "following" else or_(public_condition(Review.user_id), followed)
+    query = views.review_query(user.id).where(
+        audience,
+        Review.created_dt >= current - timedelta(days=30),
+        Review.created_dt <= current,
     )
+    if sort == "likes":
+        query = query.order_by(views.like_count().desc())
+    query = query.order_by(Review.created_dt.desc(), Review.id.desc())
     return await views.paginate(db, query, page, page_size, views.review)
 
 
-async def get_review(db, review_id):
-    row = (await db.execute(views.REVIEW_QUERY.where(Review.id == review_id))).first()
+async def get_review(db, review_id, viewer=None):
+    row = (await db.execute(views.review_query(viewer).where(Review.id == review_id))).first()
     if not row:
         fail(404, "REVIEW_NOT_FOUND", "리뷰를 찾을 수 없습니다.")
     return views.review(*row)
@@ -57,7 +75,7 @@ async def create(body: ReviewCreate, db: DB, user: CurrentUser):
     await db.flush()
     await photos.attach(db, uid, row.id, photo_ids)
     await db.commit()
-    return await get_review(db, row.id)
+    return await get_review(db, row.id, uid)
 
 
 @router.get("/review/v1", response_model=out.PageResponse[out.ReviewResponse])
@@ -74,7 +92,7 @@ async def listing(
 ):
     if not await db.get(Theme, theme_id):
         fail(404, "THEME_NOT_FOUND", "테마를 찾을 수 없습니다.")
-    query = views.REVIEW_QUERY.where(
+    query = views.review_query(who[0].id if who else None).where(
         Review.theme_id == theme_id, visible_condition(who[0].id if who else None, Review.user_id)
     )
     if keyword:
@@ -99,7 +117,7 @@ async def detail(review_id: UUID, db: DB, who: Identity):
     if not row:
         fail(404, "REVIEW_NOT_FOUND", "리뷰를 찾을 수 없습니다.")
     await check_visibility(db, who[0].id if who else None, row.user_id)
-    return await get_review(db, review_id)
+    return await get_review(db, review_id, who[0].id if who else None)
 
 
 @router.patch("/review/v1/{review_id}", response_model=out.ReviewResponse)
@@ -130,7 +148,7 @@ async def patch(review_id: UUID, body: ReviewPatch, db: DB, user: CurrentUser):
     if photo_ids is not None:
         await photos.attach(db, uid, review_id, photo_ids)
     await db.commit()
-    return await get_review(db, review_id)
+    return await get_review(db, review_id, uid)
 
 
 @router.delete("/review/v1/{review_id}", status_code=204)
@@ -166,3 +184,39 @@ async def chips(
             )
         items.append({"keyword": code, "label": label, "review_count": await db.scalar(query)})
     return {"items": items}
+
+
+async def like_target(db, review_id, user_id):
+    # Serializes like/unlike for a review on PostgreSQL; SQLite uses BEGIN IMMEDIATE.
+    row = await db.scalar(select(Review).where(Review.id == review_id).with_for_update())
+    if not row:
+        fail(404, "REVIEW_NOT_FOUND", "리뷰를 찾을 수 없습니다.")
+    await check_visibility(db, user_id, row.user_id)
+
+
+@router.put("/review/v1/{review_id}/like", response_model=out.ReviewLikeResponse)
+async def like(review_id: UUID, db: DB, user: CurrentUser):
+    await like_target(db, review_id, user.id)
+    insert = sqlite_insert if db.bind.dialect.name == "sqlite" else pg_insert
+    await db.execute(
+        insert(ReviewLike)
+        .values(review_id=review_id, user_id=user.id)
+        .on_conflict_do_nothing(index_elements=["review_id", "user_id"])
+    )
+    result = await views.review_like_status(db, review_id, user.id)
+    await db.commit()
+    return result
+
+
+@router.delete("/review/v1/{review_id}/like", response_model=out.ReviewLikeResponse)
+async def unlike(review_id: UUID, db: DB, user: CurrentUser):
+    await like_target(db, review_id, user.id)
+    await db.execute(
+        sql_delete(ReviewLike).where(
+            ReviewLike.review_id == review_id,
+            ReviewLike.user_id == user.id,
+        )
+    )
+    result = await views.review_like_status(db, review_id, user.id)
+    await db.commit()
+    return result

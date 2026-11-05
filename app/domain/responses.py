@@ -98,11 +98,19 @@ class PhotoResponse(BaseModel):
     url: str
 
 
+class ReviewLikeResponse(BaseModel):
+    review_id: UUID
+    like_count: int
+    is_liked: bool
+
+
 class ReviewResponse(BaseModel):
     id: UUID
     theme_id: UUID
     theme_name: str
     theme_image_url: str | None
+    like_count: int
+    is_liked: bool
     photos: list[PhotoResponse]
     cafe_name: str
     author: PublicUserResponse

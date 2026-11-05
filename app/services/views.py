@@ -1,8 +1,8 @@
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, literal, select
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
-from app.domain.models import Cafe, Review, Theme, ThemeStatistics, User
+from app.domain.models import Cafe, Review, ReviewLike, Theme, ThemeStatistics, User
 
 COUNTS = [
     "review_count",
@@ -69,7 +69,7 @@ def theme(row, place, statistics, detail=False, is_played=False):
     return data
 
 
-def review(row, user, target, place):
+def review(row, user, target, place, like_count, is_liked):
     data = fields(
         row,
         "id theme_id rating date is_success people_size hint_count played_time content "
@@ -80,6 +80,8 @@ def review(row, user, target, place):
         data[field] = float(data[field]) if data[field] is not None else None
     return {
         **data,
+        "like_count": like_count,
+        "is_liked": bool(is_liked),
         "author": public_user(user),
         "theme_name": target.name,
         "theme_image_url": target.image_url,
@@ -111,3 +113,41 @@ async def paginate(db, query, page, page_size, convert):
         "page_size": page_size,
         "total": total,
     }
+
+
+def like_count():
+    return (
+        select(func.count(ReviewLike.id))
+        .where(ReviewLike.review_id == Review.id)
+        .correlate(Review)
+        .scalar_subquery()
+    )
+
+
+def review_query(viewer=None):
+    liked = (
+        exists(
+            select(ReviewLike.id).where(
+                ReviewLike.review_id == Review.id, ReviewLike.user_id == viewer
+            )
+        ).correlate(Review)
+        if viewer is not None
+        else literal(False)
+    )
+    return REVIEW_QUERY.add_columns(like_count().label("like_count"), liked.label("is_liked"))
+
+
+async def review_like_status(db, review_id, viewer):
+    count, liked = (
+        await db.execute(
+            select(
+                like_count(),
+                exists(
+                    select(ReviewLike.id).where(
+                        ReviewLike.review_id == Review.id, ReviewLike.user_id == viewer
+                    )
+                ).correlate(Review),
+            ).where(Review.id == review_id)
+        )
+    ).one()
+    return {"review_id": review_id, "like_count": count, "is_liked": bool(liked)}

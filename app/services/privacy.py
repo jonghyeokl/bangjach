@@ -12,12 +12,16 @@ def follows(viewer, target):
     )
 
 
-def visible_condition(viewer, target):
-    public = exists(
+def public_condition(target):
+    return exists(
         select(UserSetting.id).where(
             UserSetting.user_id == target, UserSetting.is_private.is_(False)
         )
     )
+
+
+def visible_condition(viewer, target):
+    public = public_condition(target)
     return public if viewer is None else or_(target == viewer, public, follows(viewer, target))
 
 

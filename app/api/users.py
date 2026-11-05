@@ -143,7 +143,7 @@ async def my_reviews(
     page_size: Size = 20,
     theme_id: UUID | None = None,
 ):
-    query = views.REVIEW_QUERY.where(Review.user_id == user.id)
+    query = views.review_query(user.id).where(Review.user_id == user.id)
     if theme_id is not None:
         query = query.where(Review.theme_id == theme_id)
     return await views.paginate(
@@ -237,9 +237,9 @@ async def user_reviews(
     await check_visibility(db, user.id, user_id)
     return await views.paginate(
         db,
-        views.REVIEW_QUERY.where(Review.user_id == user_id).order_by(
-            Review.created_dt.desc(), Review.id.desc()
-        ),
+        views.review_query(user.id)
+        .where(Review.user_id == user_id)
+        .order_by(Review.created_dt.desc(), Review.id.desc()),
         page,
         page_size,
         views.review,

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from uuid import UUID
 
@@ -8,7 +8,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.domain.models import Review, ReviewPhoto, Theme
+from app.domain.models import Review, ReviewPhoto, Theme, now
 
 
 def image_bytes():
@@ -48,7 +48,7 @@ async def test_feed_is_authenticated_following_only_newest_first(client, factory
                     rating=4.5,
                     date=date(2026, 1, 5 - index),
                     content=user["name"],
-                    created_dt=datetime(2026, 1, index + 1, tzinfo=timezone.utc),
+                    created_dt=now() - timedelta(days=4 - index),
                 )
             )
         await db.commit()
