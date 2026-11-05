@@ -68,6 +68,8 @@ def main():
                 env=env,
                 check=True,
             )
+            dump = staging / "catalog.sql"
+            dump.write_text(dump.read_text().rstrip() + "\n")
             themes = json.loads(
                 sql("SELECT coalesce(json_agg(t), '[]') FROM (SELECT id, image_url FROM theme) t")
             )
