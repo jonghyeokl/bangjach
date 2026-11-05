@@ -52,6 +52,6 @@ git push origin main
 - 카페 67개·테마 100개·사용자·로그인 세션: 모든 테이블 행 수와 UTC 기준 해시 비교 완료.
 - 마이그레이션: `c49af128e307`. 테마 사진 100개는 `.uploads/review-photos/themes`에 보관.
 - 이전 백업: `../backups/2026-11-05-local-migration/postgres-public.dump`. 실제 데이터·비밀값이 들어 있는 백업과 `.uploads`는 Git에 올리지 않는다.
-- 기존 Cloud Run은 외부 접근 중지, Cloud Scheduler는 일시 중지, Cloud Build 자동 배포 트리거는 비활성화.
+- 기존 Cloud Run은 외부 접근 중지, Cloud Scheduler 예약 `bangjach-daily-maintenance`는 삭제 완료, Cloud Build 자동 배포 트리거는 비활성화.
 - Cloud SQL `bangjach-postgresql-dev`는 2026-11-05 사용자 승인 후 삭제 완료. 프로젝트에 Cloud SQL 인스턴스는 없다. 로컬 DB·사진 백업은 보관한다. 클라우드 사진 버킷은 2026-11-05 사용자 요청으로 삭제했다(사진 100개 해시 검증 후 소프트 삭제 정책 해제). 빌드 이미지 저장소는 유지하며 별도 저장 요금이 발생할 수 있다.
 - 과거 Cloud Run·Cloud SQL 배포와 2026-11-04 소형 DB 이전 기록은 Git 이력에 남아 있다.
