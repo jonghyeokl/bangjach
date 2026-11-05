@@ -109,7 +109,7 @@ PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회
 - [구현 결정과 요구사항 대응](docs/implementation.md)
 - [운영 적용·배포 절차](docs/deployment.md)
 
-Cloud Run 배포 및 실제 API 검증 이력이 있으며, 현재는 로컬 실행으로 전환했다. Dockerfile·Procfile·cloudbuild.yaml은 재배포 시 사용할 수 있도록 남겨둔다. Cloud Build 자동 배포 트리거는 중지되어 있다.
+Cloud Run 배포 및 실제 API 검증 이력이 있으며, 현재는 로컬 실행으로 전환했다. Dockerfile·Procfile·cloudbuild.yaml은 재배포 시 사용할 수 있도록 남겨둔다. Cloud Run 서비스·정기 작업·자동 배포 트리거·클라우드 저장소는 삭제했으며 재배포 시 다시 구성해야 한다.
 
 
 ## 친구 피드와 리뷰 사진
