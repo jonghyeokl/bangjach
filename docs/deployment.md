@@ -1,19 +1,18 @@
 # 로컬 실행 명령어
 
-2026-11-05부터 로컬 PostgreSQL 18과 로컬 사진 저장소를 사용한다. 클라우드 DB 프록시는 필요 없다. 실제 DB 파일은 백엔드의 `.local/postgres`에 저장한다. Mac 재시작 후에는 아래 DB 시작 명령을 실행한다.
+2026-11-05부터 repo 안의 `data/bangjach.db`(SQLite)와 `data/photos`를 직접 사용한다. 별도 DB 서버·프록시·복원은 필요 없다.
 
 ## 1. 백엔드
 
 ```bash
 cd /Users/jonghyeok/bangjach/bangjach
-./scripts/local-db.sh start
 source .venv/bin/activate
 unset DATABASE_URL
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-`.env`: `DATABASE_URL`은 `127.0.0.1:5432/bangjach`, `ENVIRONMENT=development`, `REVIEW_PHOTO_BUCKET`은 빈 값. 기존 비밀번호·JWT·관리자 설정은 유지한다. 실제 `.env`는 Git에 넣지 않는다.
+`.env`: `DATABASE_URL=sqlite+aiosqlite:///./data/bangjach.db`, `ENVIRONMENT=development`, `REVIEW_PHOTO_BUCKET`은 빈 값, `REVIEW_PHOTO_LOCAL_DIR=data/photos`. JWT·관리자 설정은 유지한다. 실제 `.env`는 Git에 넣지 않는다.
 
 ## 2. 앱 — 새 터미널
 
@@ -29,11 +28,11 @@ npm run start:local
 ## DB 확인·통계 갱신
 
 ```bash
-"$(brew --prefix postgresql@18)/bin/psql" -h 127.0.0.1 -U bangjach_local -d bangjach
+sqlite3 data/bangjach.db ".tables"
 python -m app.jobs.maintenance
 ```
 
-DB 도구: 호스트 `127.0.0.1`, 포트 `5432`, 사용자 `bangjach_local`, DB `bangjach`. 비밀번호는 로컬 `.env`의 값.
+DB 도구에서는 SQLite를 선택하고 `data/bangjach.db` 파일을 연다. 접속 주소·사용자명·DB 비밀번호는 없다.
 
 ## 작업 후 GitHub 저장
 
@@ -49,12 +48,21 @@ git push origin main
 
 ## GitHub의 DB 데이터
 
-실제 DB 파일은 `.local/postgres`에 보관하고 Git에서는 제외한다. GitHub에는 `data/catalog/catalog.sql`과 테마 사진 100개를 저장하며, 실제 계정·인증정보는 제외한다. [복원·내보내기 명령](../data/catalog/README.md).
+`data/bangjach.db`는 백엔드가 실제 사용하는 DB이며 전체 데이터를 포함한다. 사진은 `data/photos`. DB 변경도 반영하려면 서버·정기 작업·DB 도구를 종료한 뒤 아래처럼 저장한다. 별도 export/import는 하지 않는다.
+
+```bash
+git add data/bangjach.db data/photos
+git commit -m 'feat/update database'
+git push origin main
+```
+
+DB 파일은 자동 병합하지 않는다. 다른 컴퓨터의 DB로 교체하기 전에는 현재 파일을 별도 백업한다.
 
 ## 이전 기록·백업
 
 - 카페 67개·테마 100개·사용자·로그인 세션: 모든 테이블 행 수와 UTC 기준 해시 비교 완료.
-- 마이그레이션: `c49af128e307`. 테마 사진 100개는 `.uploads/review-photos/themes`에 보관.
+- SQLite 이전: 전체 테이블 행 수·값 비교, 외래키·무결성 검증. 사진 100개는 `data/photos/themes`에 보관.
+- PostgreSQL 원본은 `.local/postgres`에 보존하고 서버는 중지했다. 이전 직전 백업은 `../backups/2026-11-05-sqlite-migration/`.
 - 이전 백업: `../backups/2026-11-05-local-migration/postgres-public.dump`. 실제 데이터·비밀값이 들어 있는 백업과 `.uploads`는 Git에 올리지 않는다.
 - Cloud SQL·사진 버킷·Cloud Scheduler에 이어 Cloud Run 서비스/정기 작업, Cloud Build 트리거, Artifact Registry 이미지 저장소, 배포 소스 버킷도 2026-11-05 삭제 완료.
 - 삭제 후 해당 리소스 목록이 모두 비어 있음을 확인했다. 로컬 API에서 테마 100개 및 사진 조회 정상.

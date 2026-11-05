@@ -57,7 +57,22 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    def include_object(obj, name, type_, reflected, compare_to):
+        # Alembic autogenerate does not honor SQLAlchemy Index.ddl_if().
+        if type_ == "index" and connection.dialect.name != "postgresql":
+            return name not in {
+                "review_genres_gin",
+                "review_keywords_gin",
+                "request_pair_unique",
+            }
+        return True
+
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+        render_as_batch=connection.dialect.name == "sqlite",
+    )
 
     with context.begin_transaction():
         context.run_migrations()

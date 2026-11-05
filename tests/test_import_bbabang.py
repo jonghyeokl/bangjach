@@ -186,11 +186,8 @@ def test_large_poster_is_resized_without_changing_api_limits(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_postgres_imports_do_not_duplicate(factory, tmp_path):
+async def test_concurrent_imports_do_not_duplicate(factory, tmp_path):
     data = source(tmp_path)
-    async with factory() as db:
-        if db.bind.dialect.name != "postgresql":
-            pytest.skip("PostgreSQL advisory lock test")
 
     async def run():
         async with factory() as db:

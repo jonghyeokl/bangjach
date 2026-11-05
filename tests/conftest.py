@@ -8,7 +8,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy import delete, make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 TEST_URL = os.environ.get(
@@ -16,6 +16,12 @@ TEST_URL = os.environ.get(
     "sqlite+aiosqlite:///" + str(Path(tempfile.mkdtemp(prefix="bangjach-tests-")) / "test.db"),
 )
 url = make_url(TEST_URL)
+if url.drivername.startswith("sqlite") and url.database not in (None, "", ":memory:"):
+    path = Path(url.database)
+    root = Path(__file__).resolve().parents[1]
+    path = path if path.is_absolute() else root / path
+    if path.resolve().is_relative_to(root / "data"):
+        raise RuntimeError("Tests must never use the repository's application database")
 if url.drivername.startswith("postgresql") and (
     url.host not in {"127.0.0.1", "localhost"} or url.username != "bangjach_test"
 ):
@@ -29,7 +35,7 @@ os.environ["LLM_BASE_URL"] = ""
 os.environ["LLM_MODEL"] = ""
 
 from app.core.config import settings  # noqa: E402
-from app.core.database import Base, get_session  # noqa: E402
+from app.core.database import Base, create_engine, get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 
@@ -42,7 +48,7 @@ def migration():
 
 @pytest_asyncio.fixture
 async def factory(migration):
-    engine = create_async_engine(TEST_URL, poolclass=NullPool)
+    engine = create_engine(TEST_URL, poolclass=NullPool)
     async with engine.begin() as connection:
         for table in reversed(Base.metadata.sorted_tables):
             await connection.execute(delete(table))

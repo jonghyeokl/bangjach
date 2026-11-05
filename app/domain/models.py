@@ -5,7 +5,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     CheckConstraint,
-    DateTime,
     Float,
     ForeignKey,
     Index,
@@ -20,6 +19,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.types import UTCDateTime
 
 
 def now():
@@ -32,11 +32,9 @@ def int_array():
 
 class Row:
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4, sort_order=-100)
-    created_dt: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now, sort_order=100
-    )
+    created_dt: Mapped[datetime] = mapped_column(UTCDateTime(), default=now, sort_order=100)
     updated_dt: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=now, onupdate=now, sort_order=101
+        UTCDateTime(), default=now, onupdate=now, sort_order=101
     )
 
 
@@ -82,7 +80,7 @@ class Review(Row, Base):
     genre_list: Mapped[list[int]] = mapped_column(int_array(), default=list)
     review_keyword_list: Mapped[list[int]] = mapped_column(int_array(), default=list)
     keyword_analysis_status: Mapped[int] = mapped_column(default=1)
-    keyword_analyzed_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    keyword_analyzed_dt: Mapped[datetime | None] = mapped_column(UTCDateTime())
     keyword_model_version: Mapped[str | None] = mapped_column(String(200))
     difficulty: Mapped[Decimal | None] = mapped_column(Numeric(2, 1))
     horrorness: Mapped[Decimal | None] = mapped_column(Numeric(2, 1))
@@ -186,8 +184,8 @@ class AuthSession(Row, Base):
     __tablename__ = "auth_session"
     user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
     refresh_token_hash: Mapped[str] = mapped_column(String(64), unique=True)
-    expires_dt: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    revoked_dt: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_dt: Mapped[datetime] = mapped_column(UTCDateTime())
+    revoked_dt: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class RateLimit(Base):

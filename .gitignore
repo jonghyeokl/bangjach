@@ -228,3 +228,6 @@ __marimo__/
 
 .uploads/
 .local/
+
+# The application directly uses this versioned SQLite database.
+!/data/bangjach.db

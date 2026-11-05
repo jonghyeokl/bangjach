@@ -1,7 +1,9 @@
 """Disposable local database only. Fixture for the app's browser tests."""
 
 import asyncio
+import tempfile
 from datetime import date
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import delete
@@ -13,7 +15,15 @@ from app.jobs.statistics import recalculate
 
 
 async def main():
-    if engine.url.host not in {"localhost", "127.0.0.1"} or engine.url.username != "bangjach_test":
+    postgres_test = (
+        engine.url.host in {"localhost", "127.0.0.1"} and engine.url.username == "bangjach_test"
+    )
+    sqlite_test = (
+        engine.dialect.name == "sqlite"
+        and Path(engine.url.database).resolve()
+        == Path(tempfile.gettempdir()).resolve() / "bangjach-e2e.db"
+    )
+    if not (postgres_test or sqlite_test):
         raise RuntimeError("Fixture requires a disposable local bangjach_test database")
     async with SessionLocal() as db:
         for table in reversed(Base.metadata.sorted_tables):

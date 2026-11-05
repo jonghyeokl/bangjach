@@ -1,5 +1,6 @@
 import asyncio
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -11,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.domain.models import Review, User
 from app.jobs.statistics import recalculate
-from app.services import keywords
+from app.services import keywords, limits
 
 pytestmark = pytest.mark.asyncio
 
@@ -315,7 +316,9 @@ async def test_llm_contract_and_malformed_response(monkeypatch):
     assert (await keywords.analyze(None))["keyword_analysis_status"] == 1
 
 
-async def test_admin_and_rate_limits(client):
+async def test_admin_and_rate_limits(client, monkeypatch):
+    # Keep all requests in one quota window even when the wall-clock minute rolls over.
+    monkeypatch.setattr(limits, "time", SimpleNamespace(time=lambda: 1800000000))
     user, headers, _ = await account(client)
     r = await client.post(
         "/cafe/v1",
@@ -336,10 +339,7 @@ async def test_admin_and_rate_limits(client):
     ).status_code == 429
 
 
-async def test_postgres_constraints_and_concurrent_requests(client, factory):
-    async with factory() as db:
-        if db.bind.dialect.name != "postgresql":
-            pytest.skip("PostgreSQL row locks and array constraints")
+async def test_constraints_and_concurrent_requests(client, factory):
     owner, oh, theme, _ = await catalog(client)
     friend, fh, tokens = await account(client, "동시 요청", "01022222222")
     replies = await asyncio.gather(
@@ -380,13 +380,14 @@ async def test_postgres_constraints_and_concurrent_requests(client, factory):
     async with factory() as db:
         hashed = await db.scalar(select(User.password_hash).where(User.id == UUID(owner["id"])))
         assert hashed.startswith("$argon2id$")
-        dtype = await db.scalar(
-            text(
-                "SELECT data_type FROM information_schema.columns "
-                "WHERE table_name='review' AND column_name='genre_list'"
+        if db.bind.dialect.name == "postgresql":
+            dtype = await db.scalar(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_name='review' AND column_name='genre_list'"
+                )
             )
-        )
-        assert dtype == "ARRAY"
+            assert dtype == "ARRAY"
 
 
 async def test_admin_flag_tracks_server_allowlist(client):

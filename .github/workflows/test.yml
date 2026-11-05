@@ -5,6 +5,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [sqlite, postgres]
     services:
       postgres:
         image: postgres:17
@@ -17,8 +20,8 @@ jobs:
           --health-cmd "pg_isready -U bangjach_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: postgresql+asyncpg://bangjach_test:test_password@localhost:5432/bangjach_test
-      TEST_DATABASE_URL: postgresql+asyncpg://bangjach_test:test_password@localhost:5432/bangjach_test
+      DATABASE_URL: ${{ matrix.database == 'sqlite' && 'sqlite+aiosqlite:////tmp/bangjach-ci.db' || 'postgresql+asyncpg://bangjach_test:test_password@localhost:5432/bangjach_test' }}
+      TEST_DATABASE_URL: ${{ matrix.database == 'sqlite' && 'sqlite+aiosqlite:////tmp/bangjach-ci.db' || 'postgresql+asyncpg://bangjach_test:test_password@localhost:5432/bangjach_test' }}
       ENVIRONMENT: test
       JWT_SECRET: ci-test-only-secret-not-for-production
     steps:
@@ -32,3 +35,4 @@ jobs:
       - run: alembic upgrade head && alembic check
       - run: pytest -q
       - run: pip check
+      - run: git diff --exit-code -- data/bangjach.db

@@ -18,30 +18,24 @@
 
 ## 설치와 실행
 
-현재는 **로컬 PostgreSQL 18 + 로컬 사진 저장소**로 실행한다. 기존 클라우드 데이터는 보존해 이전했다. [일상 실행 명령어](docs/deployment.md).
+현재는 **SQLite + 로컬 사진 저장소**로 실행한다. 백엔드가 repo 안의 `data/bangjach.db`를 직접 읽고 수정한다. GitHub에도 같은 DB 파일과 `data/photos`를 저장하므로, 복제 후 별도 DB 설치·시작·데이터 복원이 필요 없다. [일상 실행 명령어](docs/deployment.md).
 
-새로 복제한 Mac에서 최초 준비:
+백엔드 폴더에서 최초 준비:
 
 ```bash
-brew install postgresql@18
-./scripts/local-db.sh init
 python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-# 기존 .env는 덮어쓰지 않는다.
-cp .env.example .env
+# 기존 .env가 있으면 복사하지 않는다.
+cp -n .env.example .env
 unset DATABASE_URL
 alembic upgrade head
-python scripts/catalog_data.py import
-python -m app.jobs.maintenance
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-실제 PostgreSQL 파일은 이 저장소의 `.local/postgres`에 저장하며 Git에서는 제외한다. GitHub에는 [복원용 카페·테마·사진](data/catalog/README.md)을 포함한다. 계정·인증정보는 제외되어 새 복제본에서는 회원가입이 필요하다. 카페·테마가 있는 DB에 복원을 실행하면 안전하게 중단한다.
+Python 3.14 기준. DB 경로와 사진 경로는 실행 위치와 무관하게 백엔드 repo 기준으로 해석한다. 기존 로컬 `.env`의 JWT·관리자 설정은 유지한다. 새 환경에서 로그인 유지가 필요하면 `.env`의 `JWT_SECRET`에 고정된 임의 값을 설정한다.
 
-이미 설정한 환경은 `./scripts/local-db.sh start`로 DB를 켠다. 종료는 `./scripts/local-db.sh stop`, 확인은 `./scripts/local-db.sh status`. Homebrew 자동 시작은 해제했으므로 Mac 재시작 후에도 이 명령을 사용한다. `brew services start postgresql@18`은 사용하지 않는다.
-
-Python 3.14.3, PostgreSQL 18 기준. 다른 설치 경로는 `PG_BIN=/PostgreSQL18/bin`으로 지정한다. 로컬 접속은 `127.0.0.1:5432/bangjach`이고 `.env`의 기존 비밀번호·JWT·관리자 설정을 유지한다. 로컬 DB는 localhost 접속만 허용하며 개발용 trust 인증을 사용한다. 네트워크에 직접 공개하지 않는다.
+[DB 파일과 Git 관리](data/README.md). DB에는 요청한 전체 데이터(계정·비밀번호 해시·세션 포함)를 보존했다. `.env`의 JWT 서명 키·LLM API 키는 올리지 않는다.
 
 [Swagger 문서](http://localhost:8000/docs), [상태 확인](http://localhost:8000/api/v1/health). 기능 API는 `/user/v1`, `/theme/v1`, `/review/v1`, `/friend/v1`, `/friend-request/v1`, `/cafe/v1`, `/meta/v1/enums`다. health만 기존 `/api/v1/health`를 유지한다. 요청/응답 타입과 검증 규칙은 Swagger에서 볼 수 있다.
 
@@ -49,7 +43,7 @@ Python 3.14.3, PostgreSQL 18 기준. 다른 설치 경로는 `PG_BIN=/PostgreSQL
 
 | 변수 | 용도 |
 | --- | --- |
-| DATABASE_URL | 로컬 PostgreSQL: `postgresql+asyncpg://bangjach_local@127.0.0.1:5432/bangjach` |
+| DATABASE_URL | `sqlite+aiosqlite:///./data/bangjach.db` |
 | ENVIRONMENT | production이면 PostgreSQL과 최소 32자 JWT_SECRET 검증 |
 | JWT_SECRET | 토큰 서명 비밀값. 개발에서 비우면 재시작 때 로그인이 만료됨 |
 | CORS_ORIGINS | 웹 출처의 JSON 배열, 기본 localhost/127.0.0.1:8081 |
@@ -59,7 +53,7 @@ Python 3.14.3, PostgreSQL 18 기준. 다른 설치 경로는 `PG_BIN=/PostgreSQL
 | LLM_TIMEOUT_SECONDS | 기본 10초, 실패해도 리뷰 저장 |
 | RATE_LIMIT_ENABLED | 기본 true, DB를 공유하는 인스턴스 간 호출 제한 |
 
-실제 비밀값은 Git에 넣지 않는다. 운영은 Secret Manager로 연결한다. EXPO_PUBLIC 변수에 비밀값을 넣으면 안 된다. 모바일 실기기는 PC와 같은 네트워크에서 PC의 LAN IP를 API 주소로 사용한다.
+환경변수의 실제 비밀값은 Git에 넣지 않는다. EXPO_PUBLIC 변수에 비밀값을 넣으면 안 된다. 모바일 실기기는 PC와 같은 네트워크에서 PC의 LAN IP를 API 주소로 사용한다.
 
 ## 초기 데이터 입력
 
@@ -86,15 +80,24 @@ ruff format --check .
 python -m pip check
 ```
 
-기본 테스트는 임시 SQLite를 쓰며 `.env`의 운영 DB를 사용하지 않는다. PostgreSQL 검증은 **삭제 가능한 로컬 테스트 DB**를 준비한 뒤 실행한다. 테스트는 테이블 데이터를 비운다. 접속 사용자는 bangjach_test, 호스트는 localhost/127.0.0.1만 허용한다.
+기본 테스트는 별도 임시 SQLite를 쓰며 `data/bangjach.db`를 변경하지 않는다. PostgreSQL 검증은 **삭제 가능한 로컬 테스트 DB**를 준비한 뒤 실행한다. 테스트는 테이블 데이터를 비운다. 접속 사용자는 bangjach_test, 호스트는 localhost/127.0.0.1만 허용한다.
 
 ```bash
 TEST_DATABASE_URL=postgresql+asyncpg://bangjach_test@127.0.0.1:55432/postgres pytest -q
 ```
 
-PostgreSQL에서는 배열 제약조건·동시 리뷰/친구 요청·토큰 회전을 추가 검증한다. GitHub Actions도 PostgreSQL 17에서 마이그레이션, 검사, 테스트를 실행한다. 로컬에서 SQLite 9개 통과/PG 전용 1개 제외, PostgreSQL 10개 통과를 확인했다. 테스트 수는 여러 시나리오를 묶은 함수 기준이다.
+SQLite에서도 외래키·리뷰 코드 제약조건과 UTC 시간을 보존한다. 로컬 SQLite 트랜잭션은 `BEGIN IMMEDIATE`로 직렬화해 동시 토큰 갱신·친구 요청·사진 연결을 보호한다. 쓰기 대기는 최대 30초이며, 다중 사용자 운영 환경을 위한 설정은 아니다. GitHub Actions는 SQLite와 PostgreSQL 양쪽에서 마이그레이션·스키마 검사·테스트를 실행한다.
 
-앱 브라우저 테스트용 데이터 준비: 로컬 테스트 DB를 DATABASE_URL로 지정하여 `python -m tests.seed_e2e` 실행 후 API 시작. 이 스크립트는 테스트 DB를 비우고 가상 테마와 계정을 넣는다. 실제 초기 데이터 입력용이 아니다.
+앱 브라우저 테스트용 DB는 실제 파일과 분리한다. 백엔드 폴더의 별도 터미널에서:
+
+```bash
+export DATABASE_URL="sqlite+aiosqlite:///$(python -c 'import tempfile; print(tempfile.gettempdir())')/bangjach-e2e.db"
+alembic upgrade head
+python -m tests.seed_e2e
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+이 시드 명령은 지정된 임시 DB만 비우고 가상 계정·테마를 넣는다. 테스트 종료 후 `unset DATABASE_URL`로 실제 DB 설정을 다시 사용한다.
 
 ## 구조와 문서
 
@@ -117,7 +120,7 @@ Cloud Run 배포 및 실제 API 검증 이력이 있으며, 현재는 로컬 실
 - `POST /media/v1/review-photos`: 로그인 후 이미지 파일 바이트 전송 (`application/octet-stream`). `{id, url}` 반환. 이 단계에서는 공개되지 않는다.
 - 리뷰 작성/수정 JSON에 `photo_ids: [uuid, ...]` (최대 5개). 본인의 미사용 사진 또는 해당 리뷰의 기존 사진만 허용. 수정 시 생략하면 유지, `[]`는 모두 제거.
 - 사진: JPEG/PNG/WebP, 최대 8MB·2,500만 화소. 긴 변 1600px 이하 JPEG로 변환하며 EXIF 제거. 리뷰 삭제·사진 제거 즉시 공개 접근 차단.
-- 운영: 비공개 Google Cloud Storage, 개발: `.uploads/review-photos`. [배포·운영 명령](docs/deployment.md).
+- 운영: 비공개 Google Cloud Storage, 로컬: `data/photos`. [배포·운영 명령](docs/deployment.md).
 - 미저장·분리된 사진은 `python -m app.jobs.cleanup_photos`로 24시간 이후 정리. 현재는 `python -m app.jobs.maintenance`로 수동 실행.
 
 
@@ -140,13 +143,13 @@ Cloud Run 배포 및 실제 API 검증 이력이 있으며, 현재는 로컬 실
 # 검증/미리보기만 (DB·버킷에 쓰지 않음)
 .venv/bin/python -m app.jobs.import_bbabang /수집폴더/themes.json
 
-# 실제 등록 (Cloud SQL Proxy 연결 및 저장소 접근 권한 필요)
-.venv/bin/python -m app.jobs.import_bbabang /수집폴더/themes.json --apply --photo-bucket bangjach-api-192693215385-review-photos
+# 실제 등록 (repo 안의 SQLite DB·사진 폴더에 저장)
+.venv/bin/python -m app.jobs.import_bbabang /수집폴더/themes.json --apply --local-photos
 ```
 
-- 앱의 `npm run collect:bbabang -- --input <JSON> --import-db --apply --photo-bucket <버킷>`으로 다운로드·CSV·DB 등록을 한 번에 실행할 수 있다.
+- 앱의 `npm run collect:bbabang -- --input <JSON> --import-db --apply --local-photos`으로 다운로드·CSV·DB 등록을 한 번에 실행할 수 있다.
 - 원본 ID 기반 UUID로 중복을 방지하고 기존 카페/테마는 이름도 대조한다. 기존 내용을 덮어쓰지 않는다. 카페명 중복·주소 불일치·필수 정보 누락은 보고하고 중단한다.
-- 임포터 실행을 PostgreSQL advisory lock으로 직렬화한다. DB 쓰기는 한 트랜잭션으로 처리하며 실패하면 이번에 저장한 사진도 정리한다. 기존 데이터 삭제나 새 마이그레이션은 없다.
+- SQLite 트랜잭션으로 임포터 실행을 직렬화한다. DB 쓰기는 한 트랜잭션으로 처리하며 실패하면 이번에 저장한 사진도 정리한다. 기존 데이터 삭제나 새 마이그레이션은 없다.
 - 가져온 포스터는 최대 6,400만 화소·12MB를 허용하고 1600px JPEG로 축소한다. 일반 업로드 API의 제한은 그대로다.
 - 원본 추천 점수·리뷰 수는 저장하지 않는다. 방자취 통계는 실제 사용자 리뷰로 계산한다.
-- 개발 전용 로컬 DB와 사진 폴더를 쓸 때만 `--local-photos`를 지정한다. Cloud SQL의 사진은 서비스가 사용하는 버킷에 저장해야 한다.
+- 현재 환경에서는 `--local-photos`를 지정한다.
