@@ -1,12 +1,12 @@
 # 로컬 실행 명령어
 
-2026-11-05부터 로컬 PostgreSQL 18과 로컬 사진 저장소를 사용한다. 클라우드 DB 프록시는 필요 없다.
+2026-11-05부터 로컬 PostgreSQL 18과 로컬 사진 저장소를 사용한다. 클라우드 DB 프록시는 필요 없다. 실제 DB 파일은 백엔드의 `.local/postgres`에 저장한다. Mac 재시작 후에는 아래 DB 시작 명령을 실행한다.
 
 ## 1. 백엔드
 
 ```bash
 cd /Users/jonghyeok/bangjach/bangjach
-brew services start postgresql@18
+./scripts/local-db.sh start
 source .venv/bin/activate
 unset DATABASE_URL
 alembic upgrade head
@@ -46,6 +46,10 @@ git push origin main
 ```
 
 오류 수정은 `fix/short summary`. 이제 push는 소스 저장·CI 실행이며 운영 자동 배포 트리거는 삭제했다.
+
+## GitHub의 DB 데이터
+
+실제 DB 파일은 `.local/postgres`에 보관하고 Git에서는 제외한다. GitHub에는 `data/catalog/catalog.sql`과 테마 사진 100개를 저장하며, 실제 계정·인증정보는 제외한다. [복원·내보내기 명령](../data/catalog/README.md).
 
 ## 이전 기록·백업
 

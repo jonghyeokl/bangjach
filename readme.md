@@ -20,30 +20,28 @@
 
 현재는 **로컬 PostgreSQL 18 + 로컬 사진 저장소**로 실행한다. 기존 클라우드 데이터는 보존해 이전했다. [일상 실행 명령어](docs/deployment.md).
 
-새 Mac에서 DB 최초 준비(기존 사용자·DB가 있으면 생성 명령은 생략):
+새로 복제한 Mac에서 최초 준비:
 
 ```bash
 brew install postgresql@18
-brew services start postgresql@18
-"$(brew --prefix postgresql@18)/bin/createuser" --login bangjach_local
-"$(brew --prefix postgresql@18)/bin/createdb" --owner=bangjach_local bangjach
-```
-
-`.env.example`은 Homebrew의 로컬 접속 설정 기준이다. 직접 인증을 설정한 DB는 비밀번호도 지정한다. DB는 `127.0.0.1:5432`, 사진은 `.uploads/review-photos`에 저장한다. 새 복제본은 빈 DB로 시작하며 실제 사용자 데이터와 수집 사진은 Git에 포함하지 않는다.
-
-Python 3.14.3 기준, 고정 의존성은 requirements.txt. 기존 .env를 복사 명령으로 덮어쓰지 않는다.
-
-```bash
+./scripts/local-db.sh init
 python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-# 최초 복제 시에만
+# 기존 .env는 덮어쓰지 않는다.
 cp .env.example .env
-# .env의 DATABASE_URL이 로컬 DB를 가리키는지 확인
 unset DATABASE_URL
 alembic upgrade head
+python scripts/catalog_data.py import
+python -m app.jobs.maintenance
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+실제 PostgreSQL 파일은 이 저장소의 `.local/postgres`에 저장하며 Git에서는 제외한다. GitHub에는 [복원용 카페·테마·사진](data/catalog/README.md)을 포함한다. 계정·인증정보는 제외되어 새 복제본에서는 회원가입이 필요하다. 카페·테마가 있는 DB에 복원을 실행하면 안전하게 중단한다.
+
+이미 설정한 환경은 `./scripts/local-db.sh start`로 DB를 켠다. 종료는 `./scripts/local-db.sh stop`, 확인은 `./scripts/local-db.sh status`. Homebrew 자동 시작은 해제했으므로 Mac 재시작 후에도 이 명령을 사용한다. `brew services start postgresql@18`은 사용하지 않는다.
+
+Python 3.14.3, PostgreSQL 18 기준. 다른 설치 경로는 `PG_BIN=/PostgreSQL18/bin`으로 지정한다. 로컬 접속은 `127.0.0.1:5432/bangjach`이고 `.env`의 기존 비밀번호·JWT·관리자 설정을 유지한다. 로컬 DB는 localhost 접속만 허용하며 개발용 trust 인증을 사용한다. 네트워크에 직접 공개하지 않는다.
 
 [Swagger 문서](http://localhost:8000/docs), [상태 확인](http://localhost:8000/api/v1/health). 기능 API는 `/user/v1`, `/theme/v1`, `/review/v1`, `/friend/v1`, `/friend-request/v1`, `/cafe/v1`, `/meta/v1/enums`다. health만 기존 `/api/v1/health`를 유지한다. 요청/응답 타입과 검증 규칙은 Swagger에서 볼 수 있다.
 
