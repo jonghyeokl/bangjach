@@ -1,20 +1,20 @@
 # 방자취 API
 
-방탈출 카페와 테마를 탐색하고 리뷰·친구·캘린더로 플레이 경험을 기록하는 FastAPI 백엔드. **카페는 방탈출 카페이며 한 카페가 여러 테마를 운영한다(1:N).**
+방탈출 카페와 테마를 탐색하고 리뷰·팔로우·캘린더로 플레이 경험을 기록하는 FastAPI 백엔드. **카페는 방탈출 카페이며 한 카페가 여러 테마를 운영한다(1:N).**
 
 기준 명세: [1차 구현 계획](https://www.notion.so/40b605e41f1d8081836dc070bbcb830c). 앱은 별도 [bangjach-app 저장소](https://github.com/jonghyeokl/bangjach-app)에 있다.
 
 ## 구현 범위
 
 - 전화번호·비밀번호 가입/로그인, 중복 불가 닉네임, Argon2id 해시, JWT와 서버 세션, 리프레시 회전/로그아웃.
-- 관리자 카페·테마 등록, 카페/테마 검색, 지역·장르·점수 필터와 정렬, 홈페이지 링크.
+- 관리자 카페·테마 등록, 카페/테마 검색, 지역→세부 지역·장르·점수 필터와 정렬, 홈페이지 링크.
 - 사용자·테마당 리뷰 하나. **평점과 플레이 날짜 필수**, 점수는 1~5의 0.5 간격. 나머지는 선택 입력.
-- 고정 키워드의 LLM 분류, any/all 키워드 및 인원 리뷰 필터, 키워드별 개수.
-- 닉네임 친구 요청·수락·거절·취소·해제, 안 한 테마 검색(일행은 수락된 친구만, 일행 검색 공개 범위도 확인).
-- 월별 캘린더, 캘린더/일행 검색 공개 설정(기본 친구만). 리뷰와 리뷰 날짜는 항상 공개.
+- OpenAI Responses API로 10개 리뷰 주제의 언급 여부 분석. 이머시브·분리·직원연출 포함, 모두 미해당 가능.
+- 닉네임 검색·팔로우·승인·거절·취소, 팔로잉 최신 리뷰 피드, 타인 프로필/캘린더/목록. 일행은 검색을 허용한 승인된 팔로잉만.
+- 기본 비공개 계정: 승인된 팔로워에게 리뷰·사진·캘린더·팔로우 목록 공개. 공개 전환 시 대기 요청도 승인.
 - 사용자별 평점 보정과 일별 통계 작업. 보정 강도 10, 항목별 최소 3명. 원점수 보존.
 
-실제 LLM 호출은 공급자·모델·키 설정이 필요하다. 미설정/분석 실패 시 리뷰를 저장하고 FAILED 상태를 반환한다. 본문 없으면 SKIPPED다. 시간표·예약·추천·비밀번호 재설정·휴대폰 인증은 이번 범위에 없다.
+실제 AI 호출은 `.env`의 `OPENAI_API_KEY` 설정이 필요하다. 기본 모델은 `gpt-4.1-mini`. 미설정/분석 실패 시 리뷰를 저장하고 FAILED 상태를 반환한다. 본문 없으면 SKIPPED다. 시간표·예약·추천·비밀번호 재설정·휴대폰 인증은 이번 범위에 없다.
 
 ## 설치와 실행
 
@@ -37,7 +37,7 @@ Python 3.14 기준. DB 경로와 사진 경로는 실행 위치와 무관하게 
 
 [DB 파일과 Git 관리](data/README.md). DB에는 요청한 전체 데이터(계정·비밀번호 해시·세션 포함)를 보존했다. `.env`의 JWT 서명 키·LLM API 키는 올리지 않는다.
 
-[Swagger 문서](http://localhost:8000/docs), [상태 확인](http://localhost:8000/api/v1/health). 기능 API는 `/user/v1`, `/theme/v1`, `/review/v1`, `/friend/v1`, `/friend-request/v1`, `/cafe/v1`, `/meta/v1/enums`다. health만 기존 `/api/v1/health`를 유지한다. 요청/응답 타입과 검증 규칙은 Swagger에서 볼 수 있다.
+[Swagger 문서](http://localhost:8000/docs), [상태 확인](http://localhost:8000/api/v1/health). 기능 API는 `/user/v1`, `/theme/v1`, `/review/v1`, `/follow/v1`, `/feed/v1`, `/cafe/v1`, `/meta/v1/enums`다. health만 기존 `/api/v1/health`를 유지한다. 요청/응답 타입과 검증 규칙은 Swagger에서 볼 수 있다.
 
 ## 환경변수
 
@@ -49,7 +49,7 @@ Python 3.14 기준. DB 경로와 사진 경로는 실행 위치와 무관하게 
 | CORS_ORIGINS | 웹 출처의 JSON 배열, 기본 localhost/127.0.0.1:8081 |
 | ADMIN_USER_IDS | 관리자 사용자 UUID의 JSON 배열. 기본 [] |
 | ACCESS_TOKEN_MINUTES / REFRESH_TOKEN_DAYS | 기본 15분 / 30일 |
-| LLM_BASE_URL / LLM_MODEL / LLM_API_KEY | JSON 응답을 지원하는 chat/completions 호환 공급자 |
+| OPENAI_API_KEY / OPENAI_MODEL | OpenAI API 키 / 기본 gpt-4.1-mini |
 | LLM_TIMEOUT_SECONDS | 기본 10초, 실패해도 리뷰 저장 |
 | RATE_LIMIT_ENABLED | 기본 true, DB를 공유하는 인스턴스 간 호출 제한 |
 
@@ -61,13 +61,15 @@ Python 3.14 기준. DB 경로와 사진 경로는 실행 위치와 무관하게 
 2. 해당 UUID를 서버의 `ADMIN_USER_IDS=["UUID"]`에 넣고 서버 재시작.
 3. Swagger의 Authorize에 액세스 토큰을 입력한 뒤 `POST /cafe/v1`, `POST /theme/v1` 순서로 등록.
 
-카페/테마 이름은 지점·동명 테마 때문에 고유값으로 제한하지 않는다. 이미지는 URL로 입력한다. 공식 장르와 초기 점수는 입력하지 않으며 리뷰에서 집계한다.
+카페/테마 이름은 지점·동명 테마 때문에 고유값으로 제한하지 않는다. 앱에서 이미지를 직접 업로드한다. 공식 장르와 초기 점수는 입력하지 않으며 리뷰에서 집계한다.
 
 ## 통계 작업
 
 ```bash
-python -m app.jobs.statistics
+python scripts/refresh_statistics.py
 ```
+
+이 Mac의 다른 Codex 채팅에서도 **“통계 갱신해줘”**로 실행할 수 있다. [스킬 원본](codex-skills/bangjach-statistics/SKILL.md).
 
 전체 리뷰의 같은 스냅샷으로 사용자 편향과 테마 통계를 갱신한다. 리뷰 수정/삭제 후 통계는 다음 작업에 반영된다. 로컬에서는 필요할 때 수동 실행한다. 기존 Cloud Scheduler 예약은 로컬 전환 후 삭제했다.
 

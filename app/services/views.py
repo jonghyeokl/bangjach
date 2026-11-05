@@ -49,14 +49,15 @@ def stats(row):
 
 
 def cafe(row):
-    return fields(row, "id name website phone_number region address")
+    return fields(row, "id name website phone_number region subregion address")
 
 
-def theme(row, place, statistics, detail=False):
+def theme(row, place, statistics, detail=False, is_played=False):
     data = {
         **fields(row, "id name image_url length created_dt"),
-        "cafe": fields(place, "id name region"),
+        "cafe": fields(place, "id name region subregion"),
         "statistics": stats(statistics),
+        "is_played": is_played,
     }
     if detail:
         data.update(

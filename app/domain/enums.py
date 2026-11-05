@@ -1,10 +1,9 @@
 from enum import IntEnum
 
 
-class Publicity(IntEnum):
-    PRIVATE = 1
-    FRIEND_ONLY = 2
-    PUBLIC = 3
+class FollowStatus(IntEnum):
+    PENDING = 1
+    ACCEPTED = 2
 
 
 class Genre(IntEnum):
@@ -42,6 +41,9 @@ class ReviewKeyword(IntEnum):
     ERROR = 5
     GUIDE = 6
     RECOMMEND_SIZE = 7
+    IMMERSIVE = 8
+    SEPARATION = 9
+    STAFF_PERFORMANCE = 10
 
 
 class KeywordAnalysisStatus(IntEnum):
@@ -51,7 +53,6 @@ class KeywordAnalysisStatus(IntEnum):
 
 
 LABELS = {
-    "publicity": (Publicity, ["비공개", "친구만", "전체"]),
     "genre": (
         Genre,
         [
@@ -73,7 +74,18 @@ LABELS = {
     "region": (Region, ["서울", "경기", "인천", "충청", "강원", "경상", "전라", "제주"]),
     "review_keyword": (
         ReviewKeyword,
-        ["인테리어", "연출", "문제", "스토리", "장치오류", "가이드", "추천인원"],
+        [
+            "인테리어",
+            "연출",
+            "문제",
+            "스토리",
+            "장치오류",
+            "가이드",
+            "추천인원",
+            "이머시브",
+            "분리",
+            "직원연출",
+        ],
     ),
     "keyword_analysis_status": (KeywordAnalysisStatus, ["본문 없음", "분석 완료", "분석 실패"]),
 }

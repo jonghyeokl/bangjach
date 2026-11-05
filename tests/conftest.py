@@ -30,6 +30,8 @@ os.environ["DATABASE_URL"] = TEST_URL
 os.environ["ENVIRONMENT"] = "test"
 os.environ["JWT_SECRET"] = "test-only-secret-not-for-production-0123456789"
 os.environ["RATE_LIMIT_ENABLED"] = "false"
+os.environ["OPENAI_API_KEY"] = ""
+os.environ["OPENAI_MODEL"] = "gpt-4.1-mini"
 os.environ["LLM_API_KEY"] = ""
 os.environ["LLM_BASE_URL"] = ""
 os.environ["LLM_MODEL"] = ""
@@ -73,7 +75,7 @@ async def client(factory):
     app.dependency_overrides.clear()
 
 
-async def account(client, name="플레이어", number="01011111111"):
+async def account(client, name="플레이어", number="01011111111", private=False):
     payload = {"phone_number": number, "password": "test-password", "name": name}
     result = await client.post("/user/v1/sign-up", json=payload)
     assert result.status_code == 201, result.text
@@ -82,6 +84,12 @@ async def account(client, name="플레이어", number="01011111111"):
     )
     assert login.status_code == 200, login.text
     data = login.json()
+    if not private:
+        await client.patch(
+            "/user/v1/me/settings",
+            headers={"Authorization": "Bearer " + data["access_token"]},
+            json={"is_private": False},
+        )
     return data["user"], {"Authorization": "Bearer " + data["access_token"]}, data
 
 

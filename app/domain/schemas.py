@@ -17,7 +17,8 @@ from pydantic import (
     model_validator,
 )
 
-from app.domain.enums import Genre, Publicity, Region
+from app.domain.enums import Genre, Region
+from app.domain.regions import validate_subregion
 
 
 def score(v):
@@ -93,11 +94,11 @@ class Patch(Input):
 
 
 class SettingsPatch(Patch):
-    calendar_publicity: Publicity | None = None
-    party_search_publicity: Publicity | None = None
+    is_private: bool | None = Field(default=None, strict=True)
+    party_search_enabled: bool | None = Field(default=None, strict=True)
 
     def required_values(self):
-        return ["calendar_publicity", "party_search_publicity"]
+        return ["is_private", "party_search_enabled"]
 
 
 class ReviewFields(Input):
@@ -155,7 +156,13 @@ class CafeCreate(Input):
     website: Url | None = None
     phone_number: str = Field(min_length=1, max_length=30)
     region: Region
+    subregion: int | None = Field(default=None, strict=True)
     address: str = Field(min_length=1, max_length=300)
+
+    @model_validator(mode="after")
+    def region_pair(self):
+        validate_subregion(self.region, self.subregion)
+        return self
 
 
 class ThemeCreate(Input):
@@ -167,5 +174,5 @@ class ThemeCreate(Input):
     website: Url | None = None
 
 
-class FriendCreate(Input):
-    requested_user_name: Name
+class FollowCreate(Input):
+    user_id: UUID

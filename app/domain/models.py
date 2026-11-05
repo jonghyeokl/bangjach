@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     Float,
     ForeignKey,
@@ -13,7 +14,6 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Uuid,
-    func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -51,8 +51,15 @@ class Cafe(Row, Base):
     website: Mapped[str | None] = mapped_column(String(2000))
     phone_number: Mapped[str] = mapped_column(String(30))
     region: Mapped[int] = mapped_column(Integer)
+    subregion: Mapped[int | None] = mapped_column(Integer, index=True)
     address: Mapped[str] = mapped_column(String(300))
-    __table_args__ = (CheckConstraint("region BETWEEN 1 AND 8", name="cafe_region"),)
+    __table_args__ = (
+        CheckConstraint("region BETWEEN 1 AND 8", name="cafe_region"),
+        CheckConstraint(
+            "subregion IS NULL OR (subregion >= region * 100 AND subregion < (region + 1) * 100)",
+            name="cafe_subregion",
+        ),
+    )
 
 
 class Theme(Row, Base):
@@ -123,40 +130,23 @@ class ReviewPhoto(Row, Base):
     position: Mapped[int] = mapped_column(default=0)
 
 
-class Friend(Row, Base):
-    __tablename__ = "friend"
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
-    other_user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
+class Follow(Row, Base):
+    __tablename__ = "follow"
+    follower_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
+    following_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
+    status: Mapped[int] = mapped_column(default=1)
     __table_args__ = (
-        UniqueConstraint("user_id", "other_user_id"),
-        CheckConstraint("user_id < other_user_id", name="friend_order"),
-    )
-
-
-class FriendRequest(Row, Base):
-    __tablename__ = "friend_request"
-    requesting_user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
-    requested_user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), index=True)
-    __table_args__ = (
-        CheckConstraint("requesting_user_id <> requested_user_id", name="request_self"),
-        Index(
-            "request_pair_unique",
-            func.least(requesting_user_id, requested_user_id),
-            func.greatest(requesting_user_id, requested_user_id),
-            unique=True,
-        ).ddl_if(dialect="postgresql"),
+        UniqueConstraint("follower_id", "following_id", name="follow_pair"),
+        CheckConstraint("follower_id <> following_id", name="follow_self"),
+        CheckConstraint("status IN (1, 2)", name="follow_status"),
     )
 
 
 class UserSetting(Row, Base):
     __tablename__ = "user_setting"
     user_id: Mapped[UUID] = mapped_column(ForeignKey("user.id"), unique=True)
-    calendar_publicity: Mapped[int] = mapped_column(default=2, server_default="2")
-    party_search_publicity: Mapped[int] = mapped_column(default=2, server_default="2")
-    __table_args__ = tuple(
-        CheckConstraint(f"{f} BETWEEN 1 AND 3", name=f"setting_{f}")
-        for f in ("calendar_publicity", "party_search_publicity")
-    )
+    is_private: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    party_search_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
 
 class ThemeStatistics(Row, Base):

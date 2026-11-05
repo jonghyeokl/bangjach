@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request, Response
-from sqlalchemy import case, exists, select
+from sqlalchemy import case, func, select, update
 
 from app.core.errors import fail
 from app.core.security import (
@@ -18,11 +18,11 @@ from app.core.security import (
     verify_password,
 )
 from app.domain import responses as out
-from app.domain.models import AuthSession, Friend, Review, User, UserSetting, now
+from app.domain.models import AuthSession, Follow, Review, User, UserSetting, now
 from app.domain.schemas import Login, Refresh, SettingsPatch, Signup, nickname
 from app.services import views
 from app.services.limits import limit
-from app.services.privacy import check_visibility, friend_condition, visible_condition
+from app.services.privacy import check_visibility, follows
 
 router = APIRouter(prefix="/user/v1", tags=["users"])
 Page = Annotated[int, Query(ge=1)]
@@ -93,7 +93,7 @@ async def search(
     db: DB,
     user: CurrentUser,
     q: Annotated[str, Query(min_length=1, max_length=30)],
-    purpose: Literal["friend", "party"] = "friend",
+    purpose: Literal["follow", "party"] = "follow",
     page: Page = 1,
     page_size: Size = 20,
 ):
@@ -104,8 +104,8 @@ async def search(
     query = select(User).where(User.name.contains(q, autoescape=True), User.id != user.id)
     if purpose == "party":
         query = query.join(UserSetting).where(
-            exists(select(Friend.id).where(friend_condition(user.id, User.id))),
-            visible_condition(user.id, UserSetting.party_search_publicity),
+            follows(user.id, User.id),
+            UserSetting.party_search_enabled.is_(True),
         )
     query = query.order_by(case((User.name == q, 0), else_=1), User.name, User.id)
     return await views.paginate(db, query, page, page_size, views.public_user)
@@ -114,18 +114,25 @@ async def search(
 @router.get("/me/settings", response_model=out.UserSettingResponse)
 async def get_settings(db: DB, user: CurrentUser):
     row = await db.scalar(select(UserSetting).where(UserSetting.user_id == user.id))
-    return views.fields(row, "calendar_publicity party_search_publicity updated_dt")
+    return views.fields(row, "is_private party_search_enabled updated_dt")
 
 
 @router.patch("/me/settings", response_model=out.UserSettingResponse)
 async def patch_settings(body: SettingsPatch, db: DB, user: CurrentUser):
+    await db.scalar(select(User.id).where(User.id == user.id).with_for_update())
     row = await db.scalar(
         select(UserSetting).where(UserSetting.user_id == user.id).with_for_update()
     )
     for k, v in body.model_dump(exclude_unset=True).items():
         setattr(row, k, v)
+    if body.is_private is False:
+        await db.execute(
+            update(Follow)
+            .where(Follow.following_id == user.id, Follow.status == 1)
+            .values(status=2)
+        )
     await db.commit()
-    return views.fields(row, "calendar_publicity party_search_publicity updated_dt")
+    return views.fields(row, "is_private party_search_enabled updated_dt")
 
 
 @router.get("/me/reviews", response_model=out.PageResponse[out.ReviewResponse])
@@ -157,7 +164,7 @@ async def get_calendar(
         last = date(first.year, first.month, calendar.monthrange(first.year, first.month)[1])
     except ValueError:
         fail(422, "INVALID_MONTH", "월은 YYYY-MM 형식입니다.")
-    await check_visibility(db, user.id, user_id, "calendar_publicity")
+    await check_visibility(db, user.id, user_id)
     rows = (
         await db.execute(
             views.REVIEW_QUERY.where(
@@ -183,3 +190,57 @@ async def get_calendar(
             for r, _, t, c in rows
         ],
     }
+
+
+@router.get("/{user_id}/profile", response_model=out.ProfileResponse)
+async def profile(user_id: UUID, db: DB, viewer: CurrentUser):
+    target = await db.get(User, user_id)
+    if not target:
+        fail(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+    private = await db.scalar(select(UserSetting.is_private).where(UserSetting.user_id == user_id))
+    row = await db.scalar(
+        select(Follow).where(Follow.follower_id == viewer.id, Follow.following_id == user_id)
+    )
+    can_view = viewer.id == user_id or private is False or (row is not None and row.status == 2)
+    counts = {"review_count": None, "follower_count": None, "following_count": None}
+    if can_view:
+        counts = {
+            "review_count": await db.scalar(
+                select(func.count(Review.id)).where(Review.user_id == user_id)
+            ),
+            "follower_count": await db.scalar(
+                select(func.count(Follow.id)).where(
+                    Follow.following_id == user_id, Follow.status == 2
+                )
+            ),
+            "following_count": await db.scalar(
+                select(func.count(Follow.id)).where(
+                    Follow.follower_id == user_id, Follow.status == 2
+                )
+            ),
+        }
+    return {
+        **views.public_user(target),
+        **counts,
+        "is_private": private is not False,
+        "can_view": can_view,
+        "is_self": viewer.id == user_id,
+        "relationship": "following" if row and row.status == 2 else "pending" if row else "none",
+        "follow_id": row.id if row else None,
+    }
+
+
+@router.get("/{user_id}/reviews", response_model=out.PageResponse[out.ReviewResponse])
+async def user_reviews(
+    user_id: UUID, db: DB, user: CurrentUser, page: Page = 1, page_size: Size = 20
+):
+    await check_visibility(db, user.id, user_id)
+    return await views.paginate(
+        db,
+        views.REVIEW_QUERY.where(Review.user_id == user_id).order_by(
+            Review.created_dt.desc(), Review.id.desc()
+        ),
+        page,
+        page_size,
+        views.review,
+    )

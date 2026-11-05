@@ -24,25 +24,19 @@ def local_photos(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_feed_is_authenticated_friends_only_newest_first(client, factory):
+async def test_feed_is_authenticated_following_only_newest_first(client, factory):
     owner, headers, theme, _ = await catalog(client)
     friend_a, a_headers, _ = await account(client, "친구A", "01022222222")
     friend_b, b_headers, _ = await account(client, "친구B", "01033333333")
-    stranger, s_headers, _ = await account(client, "요청대기", "01044444444")
+    stranger, s_headers, _ = await account(client, "요청대기", "01044444444", private=True)
     assert (await client.get("/feed/v1")).status_code == 401
     assert (await client.get("/feed/v1", headers=headers)).json()["items"] == []
     for other, other_headers in [(friend_a, a_headers), (friend_b, b_headers)]:
-        req = await client.post(
-            "/friend-request/v1", headers=headers, json={"requested_user_name": other["name"]}
-        )
+        req = await client.post("/follow/v1", headers=headers, json={"user_id": other["id"]})
         assert (
-            await client.post(
-                f"/friend-request/v1/{req.json()['id']}/accept", headers=other_headers
-            )
+            await client.post(f"/follow/v1/{req.json()['id']}/accept", headers=other_headers)
         ).status_code == 200
-    await client.post(
-        "/friend-request/v1", headers=headers, json={"requested_user_name": stranger["name"]}
-    )
+    await client.post("/follow/v1", headers=headers, json={"user_id": stranger["id"]})
     async with factory() as db:
         target = await db.get(Theme, UUID(theme["id"]))
         target.image_url = "https://example.com/theme.jpg"
@@ -75,9 +69,9 @@ async def test_feed_is_authenticated_friends_only_newest_first(client, factory):
         row.updated_dt = datetime(2026, 5, 1, tzinfo=timezone.utc)
         await db.commit()
     assert (await client.get("/feed/v1", headers=headers)).json()["items"][0]["id"] == item["id"]
-    friends = (await client.get("/friend/v1", headers=headers)).json()["items"]
+    friends = (await client.get("/follow/v1", headers=headers)).json()["items"]
     for friend in friends:
-        await client.delete("/friend/v1/" + friend["id"], headers=headers)
+        await client.delete("/follow/v1/" + friend["id"], headers=headers)
     assert (await client.get("/feed/v1", headers=headers)).json()["total"] == 0
 
 

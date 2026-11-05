@@ -4,11 +4,12 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.core.errors import fail
-from app.core.security import DB, CurrentUser
+from app.core.security import DB, CurrentUser, Identity
 from app.domain.models import ReviewPhoto, Theme
 from app.domain.responses import PhotoResponse
 from app.services import photos
 from app.services.limits import limit
+from app.services.privacy import check_visibility
 
 router = APIRouter(tags=["photos"])
 
@@ -57,10 +58,11 @@ async def upload(request: Request, db: DB, user: CurrentUser):
 
 
 @router.get("/media/v1/review-photos/{photo_id}")
-async def download(photo_id: UUID, db: DB):
+async def download(photo_id: UUID, db: DB, who: Identity):
     row = await db.get(ReviewPhoto, photo_id)
     if not row or row.review_id is None:
         fail(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+    await check_visibility(db, who[0].id if who else None, row.user_id)
     try:
         data = await run_in_threadpool(photos.read, row.object_key)
     except Exception:

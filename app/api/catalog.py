@@ -12,11 +12,12 @@ from app.core.errors import fail
 from app.core.security import DB, Admin, Identity
 from app.domain import responses as out
 from app.domain.enums import LABELS, Genre, Region
-from app.domain.models import Cafe, Friend, Review, Theme, ThemeStatistics
+from app.domain.models import Cafe, Follow, Review, Theme, ThemeStatistics
+from app.domain.regions import SUBREGIONS
 from app.domain.schemas import CafeCreate, ThemeCreate
 from app.services import photos, views
 from app.services.limits import limit
-from app.services.privacy import check_visibility, friend_condition
+from app.services.privacy import check_visibility
 
 router = APIRouter(tags=["catalog"])
 
@@ -24,8 +25,14 @@ router = APIRouter(tags=["catalog"])
 @router.get("/meta/v1/enums", response_model=dict[str, list[out.EnumOption]])
 async def enums():
     return {
-        key: [{"value": int(v), "label": label} for v, label in zip(enum, labels)]
-        for key, (enum, labels) in LABELS.items()
+        "subregion": [
+            {"value": code, "label": name, "parent": parent}
+            for code, (parent, name) in SUBREGIONS.items()
+        ],
+        **{
+            key: [{"value": int(v), "label": label} for v, label in zip(enum, labels)]
+            for key, (enum, labels) in LABELS.items()
+        },
     }
 
 
@@ -123,6 +130,7 @@ async def themes(
     who: Identity,
     q: Annotated[str | None, Query(max_length=100)] = None,
     region: Annotated[list[Region] | None, Query()] = None,
+    subregion: Annotated[list[int] | None, Query()] = None,
     genre: Annotated[list[Genre] | None, Query()] = None,
     cafe_id: UUID | None = None,
     difficulty_min: float | None = None,
@@ -147,6 +155,10 @@ async def themes(
         query = query.where(Theme.cafe_id == cafe_id)
     if region:
         query = query.where(Cafe.region.in_(region))
+    if subregion:
+        if any(code not in SUBREGIONS for code in subregion):
+            fail(422, "INVALID_SUBREGION", "세부 지역을 확인하세요.")
+        query = query.where(Cafe.subregion.in_(subregion))
     if genre:
         query = query.where(
             or_(*[array_contains(db, ThemeStatistics.most_genre_list, g) for g in genre])
@@ -174,10 +186,14 @@ async def themes(
         ids = set(party_user_id or []) | {who[0].id}
         for target in ids:
             if target != who[0].id and not await db.scalar(
-                select(Friend.id).where(friend_condition(who[0].id, target))
+                select(Follow.id).where(
+                    Follow.follower_id == who[0].id,
+                    Follow.following_id == target,
+                    Follow.status == 2,
+                )
             ):
-                fail(403, "FRIENDS_ONLY", "일행은 친구 목록에서만 선택할 수 있습니다.")
-            await check_visibility(db, who[0].id, target, "party_search_publicity")
+                fail(403, "FOLLOWING_ONLY", "일행은 팔로잉 목록에서만 선택할 수 있습니다.")
+            await check_visibility(db, who[0].id, target, party=True)
         query = query.where(
             ~exists(select(Review.id).where(Review.theme_id == Theme.id, Review.user_id.in_(ids)))
         )
@@ -189,6 +205,16 @@ async def themes(
         else getattr(ThemeStatistics, "avg_" + sort)
     )
     query = query.order_by((col.asc() if order == "asc" else col.desc()).nulls_last(), Theme.id)
+    played = (
+        exists(select(Review.id).where(Review.theme_id == Theme.id, Review.user_id == who[0].id))
+        if who
+        else False
+    )
+    if who:
+        query = query.add_columns(played)
+        return await views.paginate(
+            db, query, page, page_size, lambda t, c, s, p: views.theme(t, c, s, is_played=p)
+        )
     return await views.paginate(db, query, page, page_size, views.theme)
 
 

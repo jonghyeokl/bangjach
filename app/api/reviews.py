@@ -7,21 +7,21 @@ from sqlalchemy import and_, func, or_, select, update
 from app.api.catalog import array_contains
 from app.api.users import Page, Size
 from app.core.errors import fail
-from app.core.security import DB, CurrentUser
+from app.core.security import DB, CurrentUser, Identity
 from app.domain import responses as out
 from app.domain.enums import LABELS, ReviewKeyword
-from app.domain.models import Friend, Review, Theme, now
+from app.domain.models import Review, Theme, now
 from app.domain.schemas import ReviewCreate, ReviewPatch
 from app.services import keywords, photos, views
 from app.services.limits import limit
-from app.services.privacy import friend_condition
+from app.services.privacy import check_visibility, follows, visible_condition
 
 router = APIRouter(tags=["reviews"])
 
 
 @router.get("/feed/v1", response_model=out.PageResponse[out.ReviewResponse])
 async def feed(db: DB, user: CurrentUser, page: Page = 1, page_size: Size = 20):
-    friends = select(Friend.id).where(friend_condition(user.id, Review.user_id)).exists()
+    friends = follows(user.id, Review.user_id)
     query = views.REVIEW_QUERY.where(friends, Review.user_id != user.id).order_by(
         Review.created_dt.desc(), Review.id.desc()
     )
@@ -64,6 +64,7 @@ async def create(body: ReviewCreate, db: DB, user: CurrentUser):
 async def listing(
     theme_id: UUID,
     db: DB,
+    who: Identity,
     keyword: Annotated[list[ReviewKeyword] | None, Query()] = None,
     keyword_match: Literal["any", "all"] = "any",
     people_size: Annotated[int | None, Query(gt=0)] = None,
@@ -73,7 +74,9 @@ async def listing(
 ):
     if not await db.get(Theme, theme_id):
         fail(404, "THEME_NOT_FOUND", "테마를 찾을 수 없습니다.")
-    query = views.REVIEW_QUERY.where(Review.theme_id == theme_id)
+    query = views.REVIEW_QUERY.where(
+        Review.theme_id == theme_id, visible_condition(who[0].id if who else None, Review.user_id)
+    )
     if keyword:
         tests = [array_contains(db, Review.review_keyword_list, k) for k in keyword]
         query = query.where(
@@ -91,7 +94,11 @@ async def listing(
 
 
 @router.get("/review/v1/{review_id}", response_model=out.ReviewResponse)
-async def detail(review_id: UUID, db: DB):
+async def detail(review_id: UUID, db: DB, who: Identity):
+    row = await db.get(Review, review_id)
+    if not row:
+        fail(404, "REVIEW_NOT_FOUND", "리뷰를 찾을 수 없습니다.")
+    await check_visibility(db, who[0].id if who else None, row.user_id)
     return await get_review(db, review_id)
 
 
@@ -140,13 +147,16 @@ async def delete(review_id: UUID, db: DB, user: CurrentUser):
 
 
 @router.get("/theme/v1/{theme_id}/review-keywords", response_model=out.KeywordCountsResponse)
-async def chips(theme_id: UUID, db: DB, people_size: Annotated[int | None, Query(gt=0)] = None):
+async def chips(
+    theme_id: UUID, db: DB, who: Identity, people_size: Annotated[int | None, Query(gt=0)] = None
+):
     if not await db.get(Theme, theme_id):
         fail(404, "THEME_NOT_FOUND", "테마를 찾을 수 없습니다.")
     items = []
     for code, label in enumerate(LABELS["review_keyword"][1], 1):
         query = select(func.count(Review.id)).where(
             Review.theme_id == theme_id,
+            visible_condition(who[0].id if who else None, Review.user_id),
             Review.keyword_analysis_status == 2,
             array_contains(db, Review.review_keyword_list, code),
         )

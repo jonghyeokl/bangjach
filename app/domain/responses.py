@@ -35,8 +35,8 @@ class AuthResponse(BaseModel):
 
 
 class UserSettingResponse(BaseModel):
-    calendar_publicity: int
-    party_search_publicity: int
+    is_private: bool
+    party_search_enabled: bool
     updated_dt: datetime
 
 
@@ -46,6 +46,7 @@ class CafeResponse(BaseModel):
     website: str | None
     phone_number: str
     region: int
+    subregion: int | None
     address: str
 
 
@@ -71,6 +72,7 @@ class CafeSummaryResponse(BaseModel):
     id: UUID
     name: str
     region: int
+    subregion: int | None
 
 
 class ThemeSummaryResponse(BaseModel):
@@ -80,6 +82,7 @@ class ThemeSummaryResponse(BaseModel):
     image_url: str | None
     length: int
     statistics: ThemeStatisticsResponse
+    is_played: bool = False
     created_dt: datetime
 
 
@@ -121,16 +124,21 @@ class ReviewResponse(BaseModel):
     updated_dt: datetime
 
 
-class FriendResponse(BaseModel):
-    id: UUID
-    friend: PublicUserResponse
-    created_dt: datetime
+class ProfileResponse(PublicUserResponse):
+    is_private: bool
+    can_view: bool
+    is_self: bool
+    follow_id: UUID | None = None
+    relationship: str
+    review_count: int | None
+    follower_count: int | None
+    following_count: int | None
 
 
-class FriendRequestResponse(BaseModel):
+class FollowResponse(BaseModel):
     id: UUID
-    requesting_user: PublicUserResponse
-    requested_user: PublicUserResponse
+    user: PublicUserResponse
+    status: int
     created_dt: datetime
 
 
@@ -164,3 +172,4 @@ class KeywordCountsResponse(BaseModel):
 class EnumOption(BaseModel):
     value: int
     label: str
+    parent: int | None = None

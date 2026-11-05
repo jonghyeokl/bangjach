@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -18,8 +18,12 @@ class Settings(BaseSettings):
     refresh_token_days: int = Field(default=30, ge=1)
     admin_user_ids: list[str] = []
     llm_base_url: str = ""
-    llm_api_key: str = ""
-    llm_model: str = ""
+    llm_api_key: str = Field(
+        default="", validation_alias=AliasChoices("OPENAI_API_KEY", "LLM_API_KEY")
+    )
+    llm_model: str = Field(
+        default="gpt-4.1-mini", validation_alias=AliasChoices("OPENAI_MODEL", "LLM_MODEL")
+    )
     llm_timeout_seconds: float = Field(default=10, gt=0, le=60)
     rate_limit_enabled: bool = True
     review_photo_bucket: str = ""
@@ -27,6 +31,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def local_paths(self):
+        self.llm_model = self.llm_model.strip() or "gpt-4.1-mini"
         url = make_url(self.database_url)
         if url.drivername.startswith("sqlite") and url.database not in (None, "", ":memory:"):
             path = Path(url.database)

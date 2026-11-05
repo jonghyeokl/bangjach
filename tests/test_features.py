@@ -1,4 +1,5 @@
 import asyncio
+import json
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
@@ -115,58 +116,59 @@ async def test_review_validation_crud_and_calendar(client):
     assert (await client.get("/theme/v1?exclude_played=true", headers=headers)).json()["total"] == 1
 
 
-async def test_friend_permissions_and_lifecycle(client):
+async def test_follow_permissions_and_lifecycle(client):
     owner, oh, theme, _ = await catalog(client)
-    friend, fh, _ = await account(client, "친구", "01022222222")
+    await client.patch("/user/v1/me/settings", headers=oh, json={"is_private": True})
+    follower, fh, _ = await account(client, "팔로워", "01022222222", private=True)
     outsider, xh, _ = await account(client, "타인", "01033333333")
-    path = f"/user/v1/{owner['id']}/calendar?month=2026-11"
-    assert (await client.get(path, headers=fh)).status_code == 403
-    s = (await client.get("/user/v1/me/settings", headers=oh)).json()
-    assert s["calendar_publicity"] == s["party_search_publicity"] == 2
-    request = await client.post(
-        "/friend-request/v1", headers=fh, json={"requested_user_name": owner["name"]}
-    )
-    assert request.status_code == 201
-    rid = request.json()["id"]
-    assert (
+    profile_path = f"/user/v1/{owner['id']}/profile"
+    paths = [
+        f"/user/v1/{owner['id']}/calendar?month=2026-11",
+        f"/user/v1/{owner['id']}/reviews",
+        f"/follow/v1?user_id={owner['id']}",
+    ]
+    profile = (await client.get(profile_path, headers=fh)).json()
+    assert not profile["can_view"] and profile["review_count"] is None
+    for path in paths:
+        assert (await client.get(path, headers=fh)).status_code == 403
+    review = (
         await client.post(
-            "/friend-request/v1", headers=oh, json={"requested_user_name": friend["name"]}
+            "/review/v1",
+            headers=oh,
+            json={"theme_id": theme["id"], "rating": 5, "date": "2026-11-01"},
         )
-    ).status_code == 409
-    assert (await client.post(f"/friend-request/v1/{rid}/accept", headers=xh)).status_code == 403
-    assert (await client.post(f"/friend-request/v1/{rid}/accept", headers=fh)).status_code == 403
-    accepted = await client.post(f"/friend-request/v1/{rid}/accept", headers=oh)
-    assert accepted.status_code == 200
-    assert (await client.get(path, headers=fh)).status_code == 200
-    assert (await client.get("/friend-request/v1?direction=sent", headers=fh)).json()["total"] == 0
-    await client.post(
-        "/review/v1", headers=oh, json={"theme_id": theme["id"], "rating": 5, "date": "2026-11-01"}
-    )
-    params = {"exclude_played": "true", "party_user_id": owner["id"]}
-    assert (await client.get("/theme/v1", params=params, headers=fh)).json()["total"] == 0
-    assert (await client.get("/theme/v1", params=params, headers=xh)).status_code == 403
-    await client.patch("/user/v1/me/settings", json={"calendar_publicity": 1}, headers=oh)
-    assert (await client.get(path, headers=fh)).status_code == 403
-    assert (await client.get(path, headers=oh)).status_code == 200
-    await client.patch("/user/v1/me/settings", json={"calendar_publicity": 3}, headers=oh)
-    assert (await client.get(path, headers=xh)).status_code == 200
-    await client.patch("/user/v1/me/settings", json={"calendar_publicity": 2}, headers=oh)
-    fid = accepted.json()["id"]
-    assert (await client.delete(f"/friend/v1/{fid}", headers=xh)).status_code == 403
-    assert (await client.delete(f"/friend/v1/{fid}", headers=fh)).status_code == 204
-    assert (await client.get(path, headers=fh)).status_code == 403
-    assert (await client.get("/theme/v1", params=params, headers=fh)).status_code == 403
-    for method in ("reject", "cancel"):
-        r = await client.post(
-            "/friend-request/v1", headers=fh, json={"requested_user_name": owner["name"]}
-        )
-        rid = r.json()["id"]
-        result = (
-            await client.post(f"/friend-request/v1/{rid}/reject", headers=oh)
-            if method == "reject"
-            else await client.delete(f"/friend-request/v1/{rid}", headers=fh)
-        )
-        assert result.status_code == 204
+    ).json()
+    assert (await client.get(f"/review/v1/{review['id']}", headers=fh)).status_code == 403
+    assert (await client.get(f"/review/v1?theme_id={theme['id']}", headers=fh)).json()["total"] == 0
+    req = (await client.post("/follow/v1", headers=fh, json={"user_id": owner["id"]})).json()
+    assert req["status"] == 1
+    assert (await client.post("/follow/v1", headers=fh, json={"user_id": owner["id"]})).json()[
+        "id"
+    ] == req["id"]
+    assert (await client.post(f"/follow/v1/{req['id']}/accept", headers=xh)).status_code == 403
+    assert (await client.post(f"/follow/v1/{req['id']}/accept", headers=fh)).status_code == 403
+    assert (await client.post(f"/follow/v1/{req['id']}/accept", headers=oh)).status_code == 200
+    for path in paths:
+        assert (await client.get(path, headers=fh)).status_code == 200
+    assert (await client.get(f"/review/v1/{review['id']}", headers=fh)).status_code == 200
+    assert (
+        await client.get(f"/user/v1/{follower['id']}/calendar?month=2026-11", headers=oh)
+    ).status_code == 403
+    assert (await client.get("/feed/v1", headers=fh)).json()["total"] == 1
+    assert (await client.delete(f"/follow/v1/{req['id']}", headers=xh)).status_code == 403
+    assert (await client.delete(f"/follow/v1/{req['id']}", headers=oh)).status_code == 204
+    assert (await client.get(paths[0], headers=fh)).status_code == 403
+    assert (await client.get("/feed/v1", headers=fh)).json()["total"] == 0
+    req = (await client.post("/follow/v1", headers=fh, json={"user_id": owner["id"]})).json()
+    await client.patch("/user/v1/me/settings", headers=oh, json={"is_private": False})
+    assert (await client.get(profile_path, headers=fh)).json()["relationship"] == "following"
+    assert (await client.get(paths[0], headers=xh)).status_code == 200
+    assert (await client.post("/follow/v1", headers=xh, json={"user_id": owner["id"]})).json()[
+        "status"
+    ] == 2
+    assert (
+        await client.post("/follow/v1", headers=fh, json={"user_id": follower["id"]})
+    ).status_code == 422
 
 
 async def test_statistics_all_themes_and_null_filters(client, factory):
@@ -291,18 +293,43 @@ async def test_llm_contract_and_malformed_response(monkeypatch):
     monkeypatch.setattr(settings, "llm_api_key", "test-key")
     monkeypatch.setattr(settings, "llm_model", "test-model")
     real_client = httpx.AsyncClient
-    for content, status, codes in [
-        ('{"keywords":[2,1,2]}', 2, [1, 2]),
-        ('{"keywords":[]}', 2, []),
-        ('{"keywords":[true]}', 3, []),
-        ('{"keywords":[99]}', 3, []),
+    base = dict.fromkeys(keywords.TOPICS, False)
+    for payload, status, codes in [
+        (
+            {
+                **base,
+                "interior": True,
+                "immersive": True,
+                "separation": True,
+                "staff_performance": True,
+            },
+            2,
+            [1, 8, 9, 10],
+        ),
+        (base, 2, []),
+        ({**base, "interior": 1}, 3, []),
+        ({"keywords": []}, 3, []),
         ("bad-json", 3, []),
     ]:
 
         def handler(request):
-            assert request.url.path == "/v1/chat/completions"
+            assert str(request.url) == "https://api.openai.com/v1/responses"
+            body = json.loads(request.content)
+            assert body["store"] is False
+            assert len(body["text"]["format"]["schema"]["required"]) == 10
             assert "phone_number" not in request.content.decode()
-            return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+            return httpx.Response(
+                200,
+                json={
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [{"type": "output_text", "text": json.dumps(payload)}],
+                        }
+                    ],
+                },
+            )
 
         monkeypatch.setattr(
             keywords.httpx,
@@ -343,10 +370,10 @@ async def test_constraints_and_concurrent_requests(client, factory):
     owner, oh, theme, _ = await catalog(client)
     friend, fh, tokens = await account(client, "동시 요청", "01022222222")
     replies = await asyncio.gather(
-        client.post("/friend-request/v1", headers=oh, json={"requested_user_name": friend["name"]}),
-        client.post("/friend-request/v1", headers=fh, json={"requested_user_name": owner["name"]}),
+        client.post("/follow/v1", headers=oh, json={"user_id": friend["id"]}),
+        client.post("/follow/v1", headers=fh, json={"user_id": owner["id"]}),
     )
-    assert sorted(r.status_code for r in replies) == [201, 409]
+    assert sorted(r.status_code for r in replies) == [200, 200]
     results = await asyncio.gather(
         *[
             client.post("/user/v1/refresh", json={"refresh_token": tokens["refresh_token"]})
@@ -423,16 +450,14 @@ async def test_admin_flag_tracks_server_allowlist(client):
     ).status_code == 403
 
 
-async def test_party_search_only_returns_allowed_friends(client):
+async def test_party_search_only_returns_allowed_following(client):
     owner, headers, _, _ = await catalog(client)
     friend, fh, _ = await account(client, "일행친구", "01022222222")
     outsider, xh, _ = await account(client, "일행타인", "01033333333")
     # Even a stranger with public party visibility cannot be searched or supplied by ID.
-    await client.patch("/user/v1/me/settings", headers=xh, json={"party_search_publicity": 3})
-    request = await client.post(
-        "/friend-request/v1", headers=headers, json={"requested_user_name": friend["name"]}
-    )
-    await client.post(f"/friend-request/v1/{request.json()['id']}/accept", headers=fh)
+    await client.patch("/user/v1/me/settings", headers=xh, json={"party_search_enabled": True})
+    request = await client.post("/follow/v1", headers=headers, json={"user_id": friend["id"]})
+    await client.post(f"/follow/v1/{request.json()['id']}/accept", headers=fh)
     params = {"q": "일행", "purpose": "party"}
     response = await client.get("/user/v1/search", headers=headers, params=params)
     assert [u["id"] for u in response.json()["items"]] == [friend["id"]]
@@ -446,10 +471,10 @@ async def test_party_search_only_returns_allowed_friends(client):
     # Friend discovery is intentionally separate and still finds non-friends.
     assert (
         await client.get(
-            "/user/v1/search", headers=headers, params={"q": "일행", "purpose": "friend"}
+            "/user/v1/search", headers=headers, params={"q": "일행", "purpose": "follow"}
         )
     ).json()["total"] == 2
-    await client.patch("/user/v1/me/settings", headers=fh, json={"party_search_publicity": 1})
+    await client.patch("/user/v1/me/settings", headers=fh, json={"party_search_enabled": False})
     assert (await client.get("/user/v1/search", headers=headers, params=params)).json()[
         "total"
     ] == 0

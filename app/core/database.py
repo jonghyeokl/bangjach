@@ -19,7 +19,7 @@ def create_engine(url, **kwargs):
         @event.listens_for(engine.sync_engine, "begin")
         def sqlite_begin(connection):
             # SQLite ignores FOR UPDATE. Reserve the writer before the first read
-            # so refresh rotation, friend requests and photo ownership stay atomic.
+            # so refresh rotation, follow requests and photo ownership stay atomic.
             connection.exec_driver_sql("BEGIN IMMEDIATE")
 
     return engine

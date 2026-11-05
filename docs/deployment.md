@@ -14,6 +14,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 `.env`: `DATABASE_URL=sqlite+aiosqlite:///./data/bangjach.db`, `ENVIRONMENT=development`, `REVIEW_PHOTO_BUCKET`은 빈 값, `REVIEW_PHOTO_LOCAL_DIR=data/photos`. JWT·관리자 설정은 유지한다. 실제 `.env`는 Git에 넣지 않는다.
 
+## 리뷰 AI 분석
+
+백엔드 `.env`에 `OPENAI_API_KEY=발급받은키` 설정 후 서버 재시작. 기본 모델은 `gpt-4.1-mini`. [API 키 발급](https://platform.openai.com/api-keys). API 키는 앱에 넣지 않는다.
+
 ## 2. 앱 — 새 터미널
 
 ```bash
@@ -29,8 +33,10 @@ npm run start:local
 
 ```bash
 sqlite3 data/bangjach.db ".tables"
-python -m app.jobs.maintenance
+python scripts/refresh_statistics.py
 ```
+
+이 Mac의 다른 Codex 채팅에서도 **“통계 갱신해줘”**로 실행 가능. 스킬이 바로 보이지 않으면 Codex를 다시 열고 `$bangjach-statistics` 사용.
 
 DB 도구에서는 SQLite를 선택하고 `data/bangjach.db` 파일을 연다. 접속 주소·사용자명·DB 비밀번호는 없다.
 
